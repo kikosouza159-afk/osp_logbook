@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: osp-logbook
+    runtime: node
+    plan: free
+    region: ohio
+    branch: main
+    autoDeploy: true
+    buildCommand: npm install --no-audit --no-fund && npm run build
+    startCommand: npm run start:render
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_UNPOOLED
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_INITIAL_PASSWORD
+        sync: false
