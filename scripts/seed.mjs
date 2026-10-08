@@ -2,17 +2,43 @@ import pg from "pg";
 import bcrypt from "bcryptjs";
 
 const { Pool } = pg;
-const rawConnectionString = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
-if (!rawConnectionString) throw new Error("DATABASE_URL_UNPOOLED ou DATABASE_URL não configurada.");
 
-const url = new URL(rawConnectionString);
-url.searchParams.set("sslmode", "require");
-const connectionString = url.toString();
+function normalizeDatabaseUrl(value, label) {
+  const url = new URL(value);
+  if (!url.username) throw new Error(`${label} sem usuário na connection string.`);
+  if (!url.password) throw new Error(`${label} sem senha na connection string. Copie a URL completa do Neon.`);
+  url.searchParams.set("sslmode", "verify-full");
+  return url.toString();
+}
+
+function pickSeedUrl() {
+  const candidates = [
+    ["DATABASE_URL_UNPOOLED", process.env.DATABASE_URL_UNPOOLED],
+    ["DATABASE_URL", process.env.DATABASE_URL],
+  ];
+
+  const errors = [];
+  for (const [label, value] of candidates) {
+    if (!value) {
+      errors.push(`${label} não configurada`);
+      continue;
+    }
+    try {
+      return { label, connectionString: normalizeDatabaseUrl(value, label) };
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  throw new Error(`Nenhuma connection string válida. ${errors.join(" | ")}`);
+}
+
+const selected = pickSeedUrl();
+console.log(`Conexão de seed selecionada: ${selected.label}`);
 
 const password = process.env.ADMIN_INITIAL_PASSWORD || "admin123";
 const pool = new Pool({
-  connectionString,
-  ssl: { rejectUnauthorized: false },
+  connectionString: selected.connectionString,
   max: 1,
 });
 
