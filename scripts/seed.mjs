@@ -2,11 +2,19 @@ import pg from "pg";
 import bcrypt from "bcryptjs";
 
 const { Pool } = pg;
-const connectionString = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
-if (!connectionString) throw new Error("DATABASE_URL_UNPOOLED ou DATABASE_URL não configurada.");
+const rawConnectionString = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
+if (!rawConnectionString) throw new Error("DATABASE_URL_UNPOOLED ou DATABASE_URL não configurada.");
+
+const url = new URL(rawConnectionString);
+url.searchParams.set("sslmode", "require");
+const connectionString = url.toString();
 
 const password = process.env.ADMIN_INITIAL_PASSWORD || "admin123";
-const pool = new Pool({ connectionString, max: 1 });
+const pool = new Pool({
+  connectionString,
+  ssl: { rejectUnauthorized: false },
+  max: 1,
+});
 
 try {
   await pool.query(`
