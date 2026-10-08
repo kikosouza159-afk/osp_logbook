@@ -5,7 +5,7 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSession, destroySession, requireUser } from "@/lib/auth";
-import { db, query } from "@/lib/db";
+import { getPool, query } from "@/lib/db";
 import { audit } from "@/lib/audit";
 
 const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
@@ -48,7 +48,7 @@ export async function createClientAction(formData: FormData) {
   const parsed = schema.safeParse({ name: text(formData, "name"), displayName: text(formData, "display_name"), products: formData.getAll("products").map(String) });
   if (!parsed.success) throw new Error("Preencha o cliente e selecione ao menos um produto.");
 
-  const client = await db.connect();
+  const client = await getPool().connect();
   try {
     await client.query("BEGIN");
     const inserted = await client.query<{ id: string }>(
@@ -113,7 +113,7 @@ export async function createIncidentAction(formData: FormData) {
   if (!parsed.success) throw new Error("Preencha os campos obrigatórios do incidente.");
   if (data.hasTicket && !data.ticketId) throw new Error("Informe o ID do chamado.");
 
-  const client = await db.connect();
+  const client = await getPool().connect();
   let incidentId = "";
   try {
     await client.query("BEGIN");
