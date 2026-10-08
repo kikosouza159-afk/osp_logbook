@@ -4,10 +4,18 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 const { Pool } = pg;
-const connectionString = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
-if (!connectionString) throw new Error("DATABASE_URL_UNPOOLED ou DATABASE_URL não configurada.");
+const rawConnectionString = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
+if (!rawConnectionString) throw new Error("DATABASE_URL_UNPOOLED ou DATABASE_URL não configurada.");
 
-const pool = new Pool({ connectionString, max: 1 });
+const url = new URL(rawConnectionString);
+url.searchParams.set("sslmode", "require");
+const connectionString = url.toString();
+
+const pool = new Pool({
+  connectionString,
+  ssl: { rejectUnauthorized: false },
+  max: 1,
+});
 const client = await pool.connect();
 
 try {
