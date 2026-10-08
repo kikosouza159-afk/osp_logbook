@@ -2,6 +2,12 @@ import { Pool, type QueryResultRow } from "pg";
 
 const globalForDb = globalThis as unknown as { ospPool?: Pool };
 
+function secureConnectionString(value: string) {
+  const url = new URL(value);
+  url.searchParams.set("sslmode", "require");
+  return url.toString();
+}
+
 export function getPool() {
   if (globalForDb.ospPool) return globalForDb.ospPool;
 
@@ -9,7 +15,8 @@ export function getPool() {
   if (!connectionString) throw new Error("DATABASE_URL não configurada.");
 
   const pool = new Pool({
-    connectionString,
+    connectionString: secureConnectionString(connectionString),
+    ssl: { rejectUnauthorized: false },
     max: 10,
     idleTimeoutMillis: 30_000,
   });
