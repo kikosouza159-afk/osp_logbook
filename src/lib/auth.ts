@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
+import { cache } from "react";
 import { query } from "@/lib/db";
 
 export type AppRole = "ADMIN" | "ANALYST" | "VIEWER";
@@ -42,7 +43,7 @@ export async function destroySession() {
   store.delete(COOKIE_NAME);
 }
 
-export async function getSessionUser(): Promise<SessionUser | null> {
+const getSessionUserCached = cache(async (): Promise<SessionUser | null> => {
   const store = await cookies();
   const token = store.get(COOKIE_NAME)?.value;
   if (!token) return null;
@@ -58,6 +59,10 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   } catch {
     return null;
   }
+});
+
+export async function getSessionUser(): Promise<SessionUser | null> {
+  return getSessionUserCached();
 }
 
 export async function requireUser(roles?: AppRole[]) {
