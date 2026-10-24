@@ -106,7 +106,7 @@ export async function getAreas() {
 export async function getAnalysts() {
   return (await query<{
     id: string; name: string; email: string | null; username: string; role: string; position: string | null; active: boolean;
-    client_count: number; primary_count: number; has_photo: boolean; photo_updated_at: string | null;
+    client_count: number; primary_count: number; has_photo: boolean; photo_updated_at: string | null; must_change_password: boolean;
   }>(`
     SELECT
       u.id,
@@ -116,6 +116,7 @@ export async function getAnalysts() {
       u.role,
       u.position,
       u.active,
+      u.must_change_password,
       COUNT(ac.client_id)::int AS client_count,
       COUNT(ac.client_id) FILTER (WHERE ac.is_primary = TRUE)::int AS primary_count,
       (u.photo_data IS NOT NULL) AS has_photo,
