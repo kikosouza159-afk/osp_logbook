@@ -104,12 +104,12 @@ export async function assignAnalystClientAction(formData: FormData) {
 export async function createIncidentAction(formData: FormData) {
   const user = await requireUser(["ADMIN", "ANALYST"]);
   const data = {
-    clientId: text(formData, "client_id"), title: text(formData, "title"), description: text(formData, "description"),
+    clientId: text(formData, "client_id"), area: text(formData, "area"), title: text(formData, "title"), description: text(formData, "description"),
     products: formData.getAll("products").map(String), priority: text(formData, "priority"), status: text(formData, "status"),
     analyst: text(formData, "assigned_user_id"), hasTicket: formData.get("has_ticket") === "on", ticketId: text(formData, "ticket_id"),
     ticketUrl: text(formData, "ticket_url"), ticketOpenedAt: text(formData, "ticket_opened_at"), notes: text(formData, "internal_notes")
   };
-  const parsed = z.object({ clientId:z.string().uuid(), title:z.string().min(3), description:z.string().min(3), products:z.array(z.string()).min(1), priority:z.string().min(1), status:z.string().min(1) }).safeParse(data);
+  const parsed = z.object({ clientId:z.string().uuid(), area:z.string().min(1), title:z.string().min(3), description:z.string().min(3), products:z.array(z.string()).min(1), priority:z.string().min(1), status:z.string().min(1) }).safeParse(data);
   if (!parsed.success) throw new Error("Preencha os campos obrigatórios do incidente.");
   if (data.hasTicket && !data.ticketId) throw new Error("Informe o ID do chamado.");
 
@@ -118,13 +118,13 @@ export async function createIncidentAction(formData: FormData) {
   try {
     await client.query("BEGIN");
     const inserted = await client.query<{ id: string }>(`
-      INSERT INTO incidents(client_id,title,description,has_ticket,ticket_id,ticket_url,ticket_opened_at,priority_code,status_code,assigned_user_id,internal_notes,created_by)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id
-    `, [data.clientId,data.title,data.description,data.hasTicket,nullable(data.ticketId),nullable(data.ticketUrl),nullable(data.ticketOpenedAt),data.priority,data.status,nullable(data.analyst),nullable(data.notes),user.id]);
+      INSERT INTO incidents(client_id,area_code,title,description,has_ticket,ticket_id,ticket_url,ticket_opened_at,priority_code,status_code,assigned_user_id,internal_notes,created_by)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id
+    `, [data.clientId,data.area,data.title,data.description,data.hasTicket,nullable(data.ticketId),nullable(data.ticketUrl),nullable(data.ticketOpenedAt),data.priority,data.status,nullable(data.analyst),nullable(data.notes),user.id]);
     incidentId = inserted.rows[0].id;
     await client.query(`INSERT INTO incident_products(incident_id,product_id) SELECT $1::uuid,id FROM products WHERE code=ANY($2::text[])`, [incidentId,data.products]);
     await client.query(`INSERT INTO incident_updates(incident_id,user_id,update_type,new_value,comment) VALUES($1,$2,'INCIDENT_CREATED',$3,$4)`, [incidentId,user.id,data.status,"Registro criado no diário de bordo"]);
-    await client.query(`INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'CREATE_INCIDENT','incident',$2,$3::jsonb)`, [user.id,incidentId,JSON.stringify({ clientId:data.clientId,products:data.products,status:data.status })]);
+    await client.query(`INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'CREATE_INCIDENT','incident',$2,$3::jsonb)`, [user.id,incidentId,JSON.stringify({ clientId:data.clientId,area:data.area,products:data.products,status:data.status })]);
     await client.query("COMMIT");
   } catch (e) { await client.query("ROLLBACK"); throw e; } finally { client.release(); }
   revalidatePath("/"); revalidatePath("/incidents"); revalidatePath("/logbook");
@@ -134,15 +134,16 @@ export async function createIncidentAction(formData: FormData) {
 export async function updateIncidentAction(formData: FormData) {
   const user = await requireUser(["ADMIN", "ANALYST"]);
   const id = text(formData, "id");
-  const current = (await query<{ status_code:string; assigned_user_id:string|null; priority_code:string }>("SELECT status_code,assigned_user_id,priority_code FROM incidents WHERE id=$1", [id])).rows[0];
+  const current = (await query<{ status_code:string; assigned_user_id:string|null; priority_code:string; area_code:string|null }>("SELECT status_code,assigned_user_id,priority_code,area_code FROM incidents WHERE id=$1", [id])).rows[0];
   if (!current) throw new Error("Incidente não encontrado.");
-  const status = text(formData,"status"), analyst = nullable(text(formData,"assigned_user_id")), priority = text(formData,"priority");
+  const status = text(formData,"status"), analyst = nullable(text(formData,"assigned_user_id")), priority = text(formData,"priority"), area = nullable(text(formData,"area"));
   await query(`UPDATE incidents SET title=$2,description=$3,priority_code=$4,status_code=$5,assigned_user_id=$6,internal_notes=$7,
-      has_ticket=$8,ticket_id=$9,ticket_url=$10,ticket_opened_at=$11,updated_at=NOW(),resolved_at=CASE WHEN $5 IN ('RESOLVIDO','ENCERRADO') THEN COALESCE(resolved_at,NOW()) ELSE NULL END
-      WHERE id=$1`, [id,text(formData,"title"),text(formData,"description"),priority,status,analyst,nullable(text(formData,"internal_notes")),formData.get("has_ticket")==="on",nullable(text(formData,"ticket_id")),nullable(text(formData,"ticket_url")),nullable(text(formData,"ticket_opened_at"))]);
+      has_ticket=$8,ticket_id=$9,ticket_url=$10,ticket_opened_at=$11,area_code=$12,updated_at=NOW(),resolved_at=CASE WHEN $5 IN ('RESOLVIDO','ENCERRADO') THEN COALESCE(resolved_at,NOW()) ELSE NULL END
+      WHERE id=$1`, [id,text(formData,"title"),text(formData,"description"),priority,status,analyst,nullable(text(formData,"internal_notes")),formData.get("has_ticket")==="on",nullable(text(formData,"ticket_id")),nullable(text(formData,"ticket_url")),nullable(text(formData,"ticket_opened_at")),area]);
   if (current.status_code !== status) await query("INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'STATUS_CHANGE',$3,$4)",[id,user.id,current.status_code,status]);
   if (current.assigned_user_id !== analyst) await query("INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'ASSIGN_ANALYST',$3,$4)",[id,user.id,current.assigned_user_id,analyst]);
-  await audit(user.id,"UPDATE_INCIDENT","incident",id,{status,priority,analyst});
+  if (current.area_code !== area) await query("INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'AREA_CHANGE',$3,$4)",[id,user.id,current.area_code,area]);
+  await audit(user.id,"UPDATE_INCIDENT","incident",id,{status,priority,analyst,area});
   revalidatePath(`/incidents/${id}`); revalidatePath("/incidents"); revalidatePath("/");
 }
 
