@@ -3,7 +3,7 @@ import { query } from "@/lib/db";
 const TODAY = `DATE(created_at AT TIME ZONE 'America/Sao_Paulo') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')`;
 
 export async function getDashboardSummary() {
-  const [summary, products, statuses, recent] = await Promise.all([
+  const [summary, products, statuses, recent, areas] = await Promise.all([
     query<{
       total_today: string; open: string; in_progress: string; waiting: string; resolved_today: string; affected_clients: string;
     }>(`
@@ -40,6 +40,16 @@ export async function getDashboardSummary() {
       ORDER BY a.created_at DESC
       LIMIT 8
     `),
+    query<{ code: string; name: string; total: string }>(`
+      SELECT a.code, a.name, COUNT(i.id)::text total
+      FROM areas a
+      LEFT JOIN incidents i
+        ON i.area_code = a.code
+       AND DATE(i.created_at AT TIME ZONE 'America/Sao_Paulo') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')
+      WHERE a.active = TRUE
+      GROUP BY a.code, a.name, a.sort_order
+      ORDER BY a.sort_order
+    `),
   ]);
 
   const base = summary.rows[0] ?? { total_today: "0", open: "0", in_progress: "0", waiting: "0", resolved_today: "0", affected_clients: "0" };
@@ -54,6 +64,11 @@ export async function getDashboardSummary() {
     locator: productMap.LOCATOR ?? 0,
     ada: productMap.ADA ?? 0,
     statuses: statuses.rows.map((r) => ({ ...r, total: Number(r.total) })),
+    areas: areas.rows.map((r) => {
+      const total = Number(r.total);
+      const totalToday = Number(base.total_today);
+      return { ...r, total, share: totalToday ? (total / totalToday) * 100 : 0 };
+    }),
     recent: recent.rows,
   };
 }
@@ -82,13 +97,17 @@ export async function getPriorities() {
   return (await query<{ code: string; label: string }>("SELECT code, label FROM priorities WHERE active = TRUE ORDER BY sort_order")).rows;
 }
 
+export async function getAreas() {
+  return (await query<{ code: string; name: string }>("SELECT code, name FROM areas WHERE active = TRUE ORDER BY sort_order")).rows;
+}
+
 export async function getAnalysts() {
   return (await query<{ id: string; name: string; email: string | null; username: string; role: string; position: string | null; active: boolean }>(
     "SELECT id, name, email, username, role, position, active FROM users WHERE role IN ('ADMIN','ANALYST') ORDER BY name"
   )).rows;
 }
 
-export async function getIncidents(filters: { q?: string; status?: string; client?: string; analyst?: string; product?: string } = {}, limit = 100) {
+export async function getIncidents(filters: { q?: string; status?: string; client?: string; analyst?: string; product?: string; area?: string } = {}, limit = 100) {
   const where: string[] = [];
   const params: unknown[] = [];
   const add = (value: unknown) => { params.push(value); return `$${params.length}`; };
@@ -100,23 +119,25 @@ export async function getIncidents(filters: { q?: string; status?: string; clien
   if (filters.client) where.push(`i.client_id = ${add(filters.client)}::uuid`);
   if (filters.analyst) where.push(`i.assigned_user_id = ${add(filters.analyst)}::uuid`);
   if (filters.product) where.push(`EXISTS (SELECT 1 FROM incident_products ip2 JOIN products p2 ON p2.id=ip2.product_id WHERE ip2.incident_id=i.id AND p2.code=${add(filters.product)})`);
+  if (filters.area) where.push(`i.area_code = ${add(filters.area)}`);
   params.push(limit);
 
   return (await query<{
     id: string; title: string; client_name: string; ticket_id: string | null; priority_code: string; status_code: string; status_label: string;
-    analyst_name: string | null; products: string | null; created_at: string; updated_at: string;
+    analyst_name: string | null; products: string | null; area_code: string | null; area_name: string | null; created_at: string; updated_at: string;
   }>(`
     SELECT i.id, i.title, c.display_name client_name, i.ticket_id, i.priority_code, i.status_code,
-      s.label status_label, u.name analyst_name, i.created_at::text, i.updated_at::text,
+      s.label status_label, u.name analyst_name, i.area_code, a.name area_name, i.created_at::text, i.updated_at::text,
       STRING_AGG(DISTINCT p.code, ', ' ORDER BY p.code) products
     FROM incidents i
     JOIN clients c ON c.id=i.client_id
     JOIN incident_statuses s ON s.code=i.status_code
+    LEFT JOIN areas a ON a.code=i.area_code
     LEFT JOIN users u ON u.id=i.assigned_user_id
     LEFT JOIN incident_products ip ON ip.incident_id=i.id
     LEFT JOIN products p ON p.id=ip.product_id
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-    GROUP BY i.id, c.display_name, s.label, u.name
+    GROUP BY i.id, c.display_name, s.label, u.name, a.name
     ORDER BY i.created_at DESC
     LIMIT $${params.length}
   `, params)).rows;
@@ -126,20 +147,21 @@ export async function getIncident(id: string) {
   const incident = (await query<{
     id: string; client_id: string; client_name: string; title: string; description: string; has_ticket: boolean; ticket_id: string | null;
     ticket_url: string | null; ticket_opened_at: string | null; priority_code: string; status_code: string; status_label: string;
-    assigned_user_id: string | null; analyst_name: string | null; internal_notes: string | null; created_at: string; updated_at: string; products: string | null;
+    assigned_user_id: string | null; analyst_name: string | null; area_code: string | null; area_name: string | null; internal_notes: string | null; created_at: string; updated_at: string; products: string | null;
   }>(`
     SELECT i.id, i.client_id, c.display_name client_name, i.title, i.description, i.has_ticket, i.ticket_id,
       i.ticket_url, i.ticket_opened_at::text, i.priority_code, i.status_code, s.label status_label,
-      i.assigned_user_id, u.name analyst_name, i.internal_notes, i.created_at::text, i.updated_at::text,
+      i.assigned_user_id, u.name analyst_name, i.area_code, a.name area_name, i.internal_notes, i.created_at::text, i.updated_at::text,
       STRING_AGG(DISTINCT p.code, ', ' ORDER BY p.code) products
     FROM incidents i
     JOIN clients c ON c.id=i.client_id
     JOIN incident_statuses s ON s.code=i.status_code
+    LEFT JOIN areas a ON a.code=i.area_code
     LEFT JOIN users u ON u.id=i.assigned_user_id
     LEFT JOIN incident_products ip ON ip.incident_id=i.id
     LEFT JOIN products p ON p.id=ip.product_id
     WHERE i.id=$1
-    GROUP BY i.id, c.display_name, s.label, u.name
+    GROUP BY i.id, c.display_name, s.label, u.name, a.name
   `, [id])).rows[0];
   if (!incident) return null;
 
