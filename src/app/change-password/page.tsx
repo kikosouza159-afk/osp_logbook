@@ -75,11 +75,11 @@ export default async function ChangePasswordPage({
             <strong>Regras do primeiro acesso</strong>
             <span>• mínimo de 8 caracteres</span>
             <span>• não pode repetir a senha inicial</span>
-            <span>• após salvar, o acesso ao painel é liberado</span>
+            <span>• após salvar, você seguirá para o tutorial do painel</span>
           </div>
 
           <button className="btn btn-primary" style={{width:"100%",marginTop:18}} type="submit">
-            <ShieldCheck size={17}/> Salvar nova senha e acessar
+            <ShieldCheck size={17}/> Salvar nova senha e iniciar tutorial
           </button>
         </form>
 
