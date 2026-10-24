@@ -127,6 +127,8 @@ td strong { color:var(--navy); }
 .login-hint code { color:var(--navy); background:#F0F2F7; padding:2px 5px; border-radius:5px; }
 .default-password-box { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border:1px solid #DDE5F0; border-radius:11px; background:#F6F9FD; }
 .default-password-box strong { color:var(--navy); font-size:12px; }
+.default-password-box > div { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.default-password-box code { color:var(--orange); background:#FFF0E9; border:1px solid #FFD9C9; padding:5px 8px; border-radius:7px; font-weight:900; font-size:12px; }
 .default-password-box span { color:#747B8A; font-size:11px; text-align:right; }
 .first-access-card { max-width:460px; }
 .first-access-icon { width:48px; height:48px; border-radius:14px; display:grid; place-items:center; margin-bottom:16px; background:#FFF0E9; color:var(--orange); }
@@ -179,6 +181,7 @@ td strong { color:var(--navy); }
 .analyst-status::before { content:""; width:7px; height:7px; border-radius:50%; background:#A8AFBC; }
 .analyst-status.active::before { background:#168A5B; box-shadow:0 0 0 3px rgba(22,138,91,.10); }
 .analyst-status.inactive::before { background:#C43B3B; }
+.first-access-pending { background:#FFF5DE; color:#8B6200; font-size:9px; }
 .analyst-info { margin-top:14px; position:relative; z-index:1; }
 .analyst-info h3 { margin:0; color:var(--navy); font-size:17px; }
 .analyst-info p { margin:4px 0 0; color:#747A89; font-size:12px; }
