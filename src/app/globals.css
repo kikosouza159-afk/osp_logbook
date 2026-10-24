@@ -125,6 +125,57 @@ td strong { color:var(--navy); }
 .login-error { background:#FFF0F0; color:#A72D2D; border:1px solid #FFD1D1; padding:10px 12px; border-radius:10px; margin-bottom:14px; font-size:13px; }
 .login-hint { margin-top:18px; padding-top:16px; border-top:1px solid var(--line); font-size:12px; color:#848999; }
 .login-hint code { color:var(--navy); background:#F0F2F7; padding:2px 5px; border-radius:5px; }
+
+/* Login premium */
+.login-page-premium { grid-template-columns:minmax(0,1.2fr) minmax(430px,.8fr); background:#050536; }
+.login-visual-premium { position:relative; min-height:100vh; justify-content:flex-start; align-items:flex-end; padding:clamp(34px,5vw,72px); isolation:isolate; background:#050536; }
+.login-hero-image { position:absolute; inset:-3%; z-index:-5; background-image:url("/api/login-art"); background-size:cover; background-position:center center; animation:loginHeroPan 16s ease-in-out infinite alternate; transform-origin:center; }
+.login-visual-premium::before { content:""; position:absolute; inset:0; z-index:-3; border:0; border-radius:0; animation:none; background:linear-gradient(90deg,rgba(0,0,73,.76) 0%,rgba(0,0,73,.28) 50%,rgba(0,0,73,.08) 100%),linear-gradient(180deg,rgba(0,0,40,.12) 0%,rgba(0,0,40,.08) 58%,rgba(0,0,40,.74) 100%); }
+.login-visual-premium::after { content:""; position:absolute; inset:0; z-index:-2; border:0; border-radius:0; animation:none; background:radial-gradient(circle at 26% 72%,rgba(251,92,40,.22),transparent 28%),radial-gradient(circle at 73% 24%,rgba(52,95,153,.18),transparent 26%); }
+.login-hero-grid { position:absolute; inset:0; z-index:-1; opacity:.10; background-image:linear-gradient(rgba(255,255,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px); background-size:54px 54px; mask-image:linear-gradient(180deg,transparent,black 22%,black 78%,transparent); }
+.login-scan-line { position:absolute; left:0; right:0; top:-18%; height:18%; pointer-events:none; background:linear-gradient(180deg,transparent,rgba(251,92,40,.08),rgba(255,255,255,.10),transparent); filter:blur(1px); animation:loginScan 8s linear infinite; }
+.login-hero-glow { position:absolute; border-radius:50%; pointer-events:none; filter:blur(3px); opacity:.62; }
+.login-hero-glow-a { width:13px; height:13px; right:18%; top:23%; background:var(--orange); box-shadow:0 0 28px rgba(251,92,40,.9); animation:loginFloatA 5.5s ease-in-out infinite; }
+.login-hero-glow-b { width:8px; height:8px; left:16%; top:31%; background:#76A8FF; box-shadow:0 0 24px rgba(118,168,255,.9); animation:loginFloatB 7s ease-in-out infinite; }
+.login-hero-brand { position:absolute; top:34px; left:clamp(34px,5vw,72px); display:flex; align-items:center; gap:15px; z-index:2; }
+.login-hero-brand img { width:132px; height:auto; filter:drop-shadow(0 7px 22px rgba(0,0,0,.28)); }
+.login-hero-brand span { color:#E2E7FA; font-size:10px; font-weight:900; letter-spacing:.12em; text-transform:uppercase; border-left:1px solid rgba(255,255,255,.28); padding-left:14px; }
+.login-hero-copy { position:relative; z-index:2; max-width:570px; padding-bottom:24px; }
+.login-eyebrow { display:inline-flex; align-items:center; gap:9px; color:#FFD8C7; font-size:11px; font-weight:900; letter-spacing:.12em; text-transform:uppercase; }
+.login-eyebrow::before { content:""; width:30px; height:2px; background:var(--orange); }
+.login-hero-copy h1 { margin:13px 0 0; color:white; font-size:clamp(46px,5vw,70px); line-height:.94; letter-spacing:-.055em; text-shadow:0 12px 38px rgba(0,0,0,.28); }
+.login-hero-copy h1 span { color:var(--orange); }
+.login-hero-copy p { max-width:500px; margin:18px 0 0; color:#D2D9EF; font-size:14px; line-height:1.65; }
+.login-hero-pills { display:flex; flex-wrap:wrap; gap:8px; margin-top:19px; }
+.login-hero-pills span { padding:7px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.15); background:rgba(0,0,73,.42); color:white; backdrop-filter:blur(9px); font-size:10px; font-weight:800; }
+
+.login-card-wrap-premium { position:relative; overflow:hidden; background:linear-gradient(145deg,#F4F6FB 0%,#FFFFFF 58%,#EEF3FA 100%); }
+.login-card-wrap-premium::before { content:""; position:absolute; width:420px; height:420px; border-radius:50%; right:-170px; top:-150px; background:rgba(52,95,153,.08); filter:blur(1px); }
+.login-card-wrap-premium::after { content:""; position:absolute; width:360px; height:360px; border-radius:50%; left:-160px; bottom:-160px; background:rgba(251,92,40,.08); }
+.login-card-stage { position:relative; width:min(500px,92%); display:grid; place-items:center; min-height:620px; }
+.login-card-diagram { position:absolute; width:720px; max-width:152%; z-index:0; opacity:.16; pointer-events:none; filter:saturate(1.15) drop-shadow(0 18px 35px rgba(0,0,73,.12)); animation:loginDiagramFloat 11s ease-in-out infinite alternate; }
+.login-card-halo { position:absolute; z-index:0; border-radius:50%; pointer-events:none; border:1px solid rgba(52,95,153,.18); }
+.login-card-halo-a { width:520px; height:520px; animation:loginHaloSpin 25s linear infinite; }
+.login-card-halo-b { width:390px; height:390px; border-color:rgba(251,92,40,.20); animation:loginHaloSpin 18s linear infinite reverse; }
+.login-card-halo-a::before,.login-card-halo-b::before { content:""; position:absolute; width:10px; height:10px; border-radius:50%; background:var(--orange); top:50%; right:-5px; box-shadow:0 0 20px rgba(251,92,40,.72); }
+.login-card-halo-b::before { background:var(--blue); left:-5px; right:auto; box-shadow:0 0 20px rgba(52,95,153,.58); }
+.login-card-premium { position:relative; z-index:2; width:min(430px,100%); padding:36px; border:1px solid rgba(255,255,255,.80); box-shadow:0 28px 80px rgba(0,0,73,.16); backdrop-filter:blur(12px); }
+.login-card-premium::before { content:""; position:absolute; inset:0; border-radius:24px; pointer-events:none; background:linear-gradient(135deg,rgba(255,255,255,.68),transparent 42%); opacity:.62; }
+.login-card-premium > * { position:relative; z-index:1; }
+.login-card-kicker { display:inline-flex; align-items:center; gap:7px; margin-bottom:12px; color:var(--orange); font-size:10px; font-weight:900; letter-spacing:.10em; text-transform:uppercase; }
+.login-card-kicker::before { content:""; width:18px; height:2px; background:var(--orange); }
+.login-card-premium h2 { font-size:30px; letter-spacing:-.03em; }
+.login-card-premium .input { background:#F8FAFD; border-color:#DDE4EE; }
+.login-card-premium .input:focus { background:#fff; }
+.login-card-premium .btn-primary { min-height:46px; box-shadow:0 12px 28px rgba(251,92,40,.26); }
+
+@keyframes loginHeroPan { 0%{transform:scale(1.035) translate3d(-.6%,0,0)} 50%{transform:scale(1.075) translate3d(.5%,-.6%,0)} 100%{transform:scale(1.045) translate3d(1%,.2%,0)} }
+@keyframes loginScan { from{transform:translateY(-15vh)} to{transform:translateY(128vh)} }
+@keyframes loginFloatA { 0%,100%{transform:translate3d(0,0,0)} 50%{transform:translate3d(-22px,18px,0) scale(1.35)} }
+@keyframes loginFloatB { 0%,100%{transform:translate3d(0,0,0)} 50%{transform:translate3d(26px,-15px,0) scale(.72)} }
+@keyframes loginDiagramFloat { 0%{transform:translate3d(-9px,-7px,0) scale(.985) rotate(-1.5deg)} 100%{transform:translate3d(11px,9px,0) scale(1.025) rotate(1.5deg)} }
+@keyframes loginHaloSpin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+
 .default-password-box { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border:1px solid #DDE5F0; border-radius:11px; background:#F6F9FD; }
 .default-password-box strong { color:var(--navy); font-size:12px; }
 .default-password-box > div { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
@@ -259,3 +310,27 @@ td strong { color:var(--navy); }
 
 .guide-fullscreen-page { position:fixed; inset:0; z-index:999; width:100vw; height:100vh; margin:0; padding:0; overflow:hidden; background:#030322; }
 .guide-fullscreen-frame { display:block; width:100%; height:100%; border:0; background:#030322; }
+
+@media (max-width:1100px) {
+  .login-page-premium { grid-template-columns:1fr; }
+  .login-visual-premium { min-height:470px; align-items:flex-end; }
+  .login-card-wrap-premium { min-height:650px; padding:44px 24px; }
+  .login-card-stage { min-height:560px; }
+}
+@media (max-width:760px) {
+  .login-page-premium { background:#F7F8FC; }
+  .login-page-premium .login-visual-premium { display:block; min-height:230px; padding:22px; }
+  .login-page-premium .login-hero-brand { left:20px; top:20px; }
+  .login-page-premium .login-hero-brand img { width:105px; }
+  .login-page-premium .login-hero-brand span { display:none; }
+  .login-page-premium .login-hero-copy { display:none; }
+  .login-page-premium .login-card-wrap-premium { min-height:calc(100vh - 230px); padding:18px; }
+  .login-card-stage { min-height:500px; width:100%; }
+  .login-card-diagram { width:590px; opacity:.11; }
+  .login-card-halo-a { width:430px; height:430px; }
+  .login-card-halo-b { width:330px; height:330px; }
+  .login-card-premium { padding:28px 24px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .login-hero-image,.login-scan-line,.login-hero-glow,.login-card-diagram,.login-card-halo { animation:none !important; }
+}
