@@ -4,11 +4,17 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { createSession, destroySession, requireUser } from "@/lib/auth";
+import { createSession, destroySession, getSessionUser, requireUser } from "@/lib/auth";
 import { getPool, query } from "@/lib/db";
 import { audit } from "@/lib/audit";
 
 const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
+
+function analystInitialPassword() {
+  const value = process.env.ANALYST_INITIAL_PASSWORD;
+  if (!value) throw new Error("ANALYST_INITIAL_PASSWORD não configurada.");
+  return value;
+}
 
 function text(form: FormData, key: string) {
   const value = form.get(key);
@@ -21,23 +27,24 @@ export async function loginAction(formData: FormData) {
   const parsed = loginSchema.safeParse({ username: text(formData, "username"), password: text(formData, "password") });
   if (!parsed.success) redirect("/login?error=1");
 
-  const result = await query<{ id: string; name: string; username: string; password_hash: string; role: "ADMIN"|"ANALYST"|"VIEWER"; active: boolean }>(
-    "SELECT id, name, username, password_hash, role, active FROM users WHERE username=$1",
+  const result = await query<{ id: string; name: string; username: string; password_hash: string; role: "ADMIN"|"ANALYST"|"VIEWER"; active: boolean; must_change_password: boolean }>(
+    "SELECT id, name, username, password_hash, role, active, must_change_password FROM users WHERE username=$1",
     [parsed.data.username]
   );
   const user = result.rows[0];
   if (!user || !user.active || !(await bcrypt.compare(parsed.data.password, user.password_hash))) {
     redirect("/login?error=1");
   }
-  await createSession({ id: user.id, name: user.name, username: user.username, role: user.role });
+  await createSession({ id: user.id, name: user.name, username: user.username, role: user.role, must_change_password: user.must_change_password });
   await query("UPDATE users SET last_login_at=NOW() WHERE id=$1", [user.id]);
   await audit(user.id, "LOGIN", "session", user.id);
+  if (user.role === "ANALYST" && user.must_change_password) redirect("/change-password");
   redirect("/");
 }
 
 export async function logoutAction() {
-  const user = await requireUser();
-  await audit(user.id, "LOGOUT", "session", user.id);
+  const user = await getSessionUser();
+  if (user) await audit(user.id, "LOGOUT", "session", user.id);
   await destroySession();
   redirect("/login");
 }
@@ -72,17 +79,42 @@ export async function createClientAction(formData: FormData) {
 
 export async function createAnalystAction(formData: FormData) {
   const actor = await requireUser(["ADMIN"]);
-  const schema = z.object({ name: z.string().min(2), email: z.string().email(), username: z.string().min(3), password: z.string().min(6), position: z.string().optional() });
-  const parsed = schema.safeParse({ name: text(formData, "name"), email: text(formData, "email"), username: text(formData, "username"), password: text(formData, "password"), position: text(formData, "position") });
+  const schema = z.object({ name: z.string().min(2), email: z.string().email(), username: z.string().min(3), position: z.string().optional() });
+  const parsed = schema.safeParse({ name: text(formData, "name"), email: text(formData, "email"), username: text(formData, "username"), position: text(formData, "position") });
   if (!parsed.success) throw new Error("Dados do analista inválidos.");
-  const hash = await bcrypt.hash(parsed.data.password, 12);
+
+  const hash = await bcrypt.hash(analystInitialPassword(), 12);
   const result = await query<{ id: string }>(
     `INSERT INTO users(name,email,username,password_hash,role,position,must_change_password)
      VALUES($1,$2,$3,$4,'ANALYST',$5,TRUE) RETURNING id`,
     [parsed.data.name, parsed.data.email, parsed.data.username, hash, nullable(parsed.data.position ?? "")]
   );
-  await audit(actor.id, "CREATE_ANALYST", "user", result.rows[0].id, { username: parsed.data.username });
+  await audit(actor.id, "CREATE_ANALYST", "user", result.rows[0].id, { username: parsed.data.username, firstLoginPasswordChange: true });
   revalidatePath("/analysts");
+}
+
+export async function changeFirstPasswordAction(formData: FormData) {
+  const user = await getSessionUser();
+  if (!user) redirect("/login");
+  if (user.role !== "ANALYST" || !user.must_change_password) redirect("/");
+
+  const newPassword = text(formData, "new_password");
+  const confirmPassword = text(formData, "confirm_password");
+
+  if (newPassword.length < 8) redirect("/change-password?error=length");
+  if (newPassword !== confirmPassword) redirect("/change-password?error=match");
+  if (await bcrypt.compare(newPassword, await bcrypt.hash(analystInitialPassword(), 12))) {
+    redirect("/change-password?error=default");
+  }
+
+  const hash = await bcrypt.hash(newPassword, 12);
+  await query(
+    "UPDATE users SET password_hash=$2, must_change_password=FALSE, updated_at=NOW() WHERE id=$1",
+    [user.id, hash]
+  );
+  await audit(user.id, "CHANGE_INITIAL_PASSWORD", "user", user.id);
+  await createSession({ ...user, must_change_password: false });
+  redirect("/");
 }
 
 export async function uploadAnalystPhotoAction(formData: FormData) {
