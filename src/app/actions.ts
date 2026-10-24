@@ -85,6 +85,33 @@ export async function createAnalystAction(formData: FormData) {
   revalidatePath("/analysts");
 }
 
+export async function uploadAnalystPhotoAction(formData: FormData) {
+  const actor = await requireUser(["ADMIN"]);
+  const analystId = text(formData, "analyst_id");
+  const photo = formData.get("photo");
+
+  if (!analystId) throw new Error("Analista não informado.");
+  if (!(photo instanceof File) || photo.size === 0) throw new Error("Selecione uma foto.");
+
+  const allowed = new Set(["image/jpeg", "image/png", "image/webp"]);
+  if (!allowed.has(photo.type)) throw new Error("Formato inválido. Use JPG, PNG ou WEBP.");
+  if (photo.size > 3 * 1024 * 1024) throw new Error("A foto deve ter no máximo 3 MB.");
+
+  const exists = await query<{ id: string }>(
+    "SELECT id FROM users WHERE id=$1 AND role IN ('ADMIN','ANALYST')",
+    [analystId]
+  );
+  if (!exists.rowCount) throw new Error("Analista não encontrado.");
+
+  const bytes = Buffer.from(await photo.arrayBuffer());
+  await query(
+    "UPDATE users SET photo_data=$2, photo_mime=$3, photo_updated_at=NOW(), updated_at=NOW() WHERE id=$1",
+    [analystId, bytes, photo.type]
+  );
+  await audit(actor.id, "UPDATE_ANALYST_PHOTO", "user", analystId, { mime: photo.type, size: photo.size });
+  revalidatePath("/analysts");
+}
+
 export async function assignAnalystClientAction(formData: FormData) {
   const actor = await requireUser(["ADMIN"]);
   const analystId = text(formData, "analyst_id");
