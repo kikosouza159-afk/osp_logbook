@@ -5,6 +5,7 @@ import { LoginForm } from "./login-form";
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const currentUser = await getSessionUser();
   if (currentUser?.role === "ANALYST" && currentUser.must_change_password) redirect("/change-password");
+  if (currentUser?.role === "ANALYST" && !currentUser.tutorial_completed) redirect("/guide");
   if (currentUser) redirect("/");
   const params = await searchParams;
   return <main className="login-page">
