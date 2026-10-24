@@ -27,18 +27,19 @@ export async function loginAction(formData: FormData) {
   const parsed = loginSchema.safeParse({ username: text(formData, "username"), password: text(formData, "password") });
   if (!parsed.success) redirect("/login?error=1");
 
-  const result = await query<{ id: string; name: string; username: string; password_hash: string; role: "ADMIN"|"ANALYST"|"VIEWER"; active: boolean; must_change_password: boolean }>(
-    "SELECT id, name, username, password_hash, role, active, must_change_password FROM users WHERE username=$1",
+  const result = await query<{ id: string; name: string; username: string; password_hash: string; role: "ADMIN"|"ANALYST"|"VIEWER"; active: boolean; must_change_password: boolean; tutorial_completed: boolean }>(
+    "SELECT id, name, username, password_hash, role, active, must_change_password, tutorial_completed FROM users WHERE username=$1",
     [parsed.data.username]
   );
   const user = result.rows[0];
   if (!user || !user.active || !(await bcrypt.compare(parsed.data.password, user.password_hash))) {
     redirect("/login?error=1");
   }
-  await createSession({ id: user.id, name: user.name, username: user.username, role: user.role, must_change_password: user.must_change_password });
+  await createSession({ id: user.id, name: user.name, username: user.username, role: user.role, must_change_password: user.must_change_password, tutorial_completed: user.tutorial_completed });
   await query("UPDATE users SET last_login_at=NOW() WHERE id=$1", [user.id]);
   await audit(user.id, "LOGIN", "session", user.id);
   if (user.role === "ANALYST" && user.must_change_password) redirect("/change-password");
+  if (user.role === "ANALYST" && !user.tutorial_completed) redirect("/guide");
   redirect("/");
 }
 
@@ -85,8 +86,8 @@ export async function createAnalystAction(formData: FormData) {
 
   const hash = await bcrypt.hash(analystInitialPassword(), 12);
   const result = await query<{ id: string }>(
-    `INSERT INTO users(name,email,username,password_hash,role,position,must_change_password)
-     VALUES($1,$2,$3,$4,'ANALYST',$5,TRUE) RETURNING id`,
+    `INSERT INTO users(name,email,username,password_hash,role,position,must_change_password,tutorial_completed)
+     VALUES($1,$2,$3,$4,'ANALYST',$5,TRUE,FALSE) RETURNING id`,
     [parsed.data.name, parsed.data.email, parsed.data.username, hash, nullable(parsed.data.position ?? "")]
   );
   await audit(actor.id, "CREATE_ANALYST", "user", result.rows[0].id, { username: parsed.data.username, firstLoginPasswordChange: true });
@@ -112,6 +113,21 @@ export async function changeFirstPasswordAction(formData: FormData) {
   );
   await audit(user.id, "CHANGE_INITIAL_PASSWORD", "user", user.id);
   await createSession({ ...user, must_change_password: false });
+  redirect(user.tutorial_completed ? "/" : "/guide");
+}
+
+export async function completeTutorialAction() {
+  const user = await getSessionUser();
+  if (!user) redirect("/login");
+  if (user.role !== "ANALYST") redirect("/");
+
+  await query(
+    "UPDATE users SET tutorial_completed=TRUE, updated_at=NOW() WHERE id=$1",
+    [user.id]
+  );
+  await audit(user.id, "COMPLETE_FIRST_ACCESS_TUTORIAL", "user", user.id);
+  await createSession({ ...user, tutorial_completed: true });
+  revalidatePath("/guide");
   redirect("/");
 }
 
