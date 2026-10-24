@@ -97,17 +97,15 @@ export async function uploadAnalystPhotoAction(formData: FormData) {
   if (!allowed.has(photo.type)) throw new Error("Formato inválido. Use JPG, PNG ou WEBP.");
   if (photo.size > 3 * 1024 * 1024) throw new Error("A foto deve ter no máximo 3 MB.");
 
-  const exists = await query<{ id: string }>(
-    "SELECT id FROM users WHERE id=$1 AND role IN ('ADMIN','ANALYST')",
-    [analystId]
-  );
-  if (!exists.rowCount) throw new Error("Analista não encontrado.");
-
   const bytes = Buffer.from(await photo.arrayBuffer());
-  await query(
-    "UPDATE users SET photo_data=$2, photo_mime=$3, photo_updated_at=NOW(), updated_at=NOW() WHERE id=$1",
+  const updated = await query<{ id: string }>(
+    `UPDATE users
+     SET photo_data=$2, photo_mime=$3, photo_updated_at=NOW(), updated_at=NOW()
+     WHERE id=$1 AND role IN ('ADMIN','ANALYST')
+     RETURNING id`,
     [analystId, bytes, photo.type]
   );
+  if (!updated.rowCount) throw new Error("Analista não encontrado.");
   await audit(actor.id, "UPDATE_ANALYST_PHOTO", "user", analystId, { mime: photo.type, size: photo.size });
   revalidatePath("/analysts");
 }
