@@ -26,7 +26,7 @@ export default async function IncidentsPage({ searchParams }: { searchParams: Pr
 
     <section className="card table-card" style={{marginTop:0}}>
       <div className="table-wrap"><table><thead><tr><th>Data/Hora</th><th>Área</th><th>Cliente</th><th>Produto</th><th>Título</th><th>Chamado</th><th>Analista</th><th>Prioridade</th><th>Status</th></tr></thead><tbody>
-        {incidents.map(i=><tr key={i.id}><td>{formatDateTime(i.created_at)}</td><td>{i.area_code ? <span className="badge">{i.area_code}</span> : "—"}</td><td><strong>{i.client_name}</strong></td><td>{i.products||"—"}</td><td><Link href={`/incidents/${i.id}`}>{i.title}</Link></td><td>{i.ticket_id||"—"}</td><td>{i.analyst_name||"Não atribuído"}</td><td><StatusBadge code={i.priority_code}/></td><td><StatusBadge code={i.status_code} label={i.status_label}/></td></tr>)}
+        {incidents.map(i=><tr key={i.id}><td>{formatDateTime(i.created_at)}</td><td>{i.area_code ? <span className="badge">{i.area_code}</span> : "—"}</td><td><strong>{i.client_name}</strong></td><td>{i.products||"—"}</td><td><Link prefetch={false} href={`/incidents/${i.id}`}>{i.title}</Link></td><td>{i.ticket_id||"—"}</td><td>{i.analyst_name||"Não atribuído"}</td><td><StatusBadge code={i.priority_code}/></td><td><StatusBadge code={i.status_code} label={i.status_label}/></td></tr>)}
       </tbody></table></div>
       {!incidents.length&&<div className="empty"><strong>Tudo tranquilo por aqui.</strong>Nenhuma ocorrência encontrada para os filtros selecionados.</div>}
     </section>
