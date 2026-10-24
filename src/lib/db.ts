@@ -16,14 +16,21 @@ export function getPool() {
   const raw = process.env.DATABASE_URL;
   if (!raw) throw new Error("DATABASE_URL não configurada.");
 
-  const pool = new Pool({
+  globalForDb.ospPool = new Pool({
     connectionString: normalizeDatabaseUrl(raw, "DATABASE_URL"),
-    max: 10,
-    idleTimeoutMillis: 30_000,
+    max: 8,
+    min: 1,
+    idleTimeoutMillis: 60_000,
+    connectionTimeoutMillis: 8_000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
   });
 
-  if (process.env.NODE_ENV !== "production") globalForDb.ospPool = pool;
-  return pool;
+  globalForDb.ospPool.on("error", (error) => {
+    console.error("PostgreSQL pool error:", error.message);
+  });
+
+  return globalForDb.ospPool;
 }
 
 export async function query<T extends QueryResultRow = QueryResultRow>(text: string, params: unknown[] = []) {
