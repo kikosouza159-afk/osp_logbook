@@ -19,7 +19,6 @@ export function getPool() {
   globalForDb.ospPool = new Pool({
     connectionString: normalizeDatabaseUrl(raw, "DATABASE_URL"),
     max: 8,
-    min: 1,
     idleTimeoutMillis: 60_000,
     connectionTimeoutMillis: 8_000,
     keepAlive: true,
