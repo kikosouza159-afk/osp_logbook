@@ -129,7 +129,7 @@ td strong { color:var(--navy); }
 /* Login premium */
 .login-page-premium { grid-template-columns:minmax(0,1.2fr) minmax(430px,.8fr); background:#050536; }
 .login-visual-premium { position:relative; min-height:100vh; justify-content:flex-start; align-items:flex-end; padding:clamp(34px,5vw,72px); isolation:isolate; background:#050536; }
-.login-hero-image { position:absolute; inset:-3%; z-index:-5; background-image:url("/login/login-bg.webp"); background-size:cover; background-position:center center; animation:loginHeroPan 16s ease-in-out infinite alternate; transform-origin:center; }
+.login-hero-image { position:absolute; inset:-3%; z-index:-5; background-image:url("/login/login-bg-v2.webp"); background-size:cover; background-position:center center; animation:loginHeroPan 16s ease-in-out infinite alternate; transform-origin:center; }
 .login-visual-premium::before { content:""; position:absolute; inset:0; z-index:-3; border:0; border-radius:0; animation:none; background:linear-gradient(90deg,rgba(0,0,73,.76) 0%,rgba(0,0,73,.28) 50%,rgba(0,0,73,.08) 100%),linear-gradient(180deg,rgba(0,0,40,.12) 0%,rgba(0,0,40,.08) 58%,rgba(0,0,40,.74) 100%); }
 .login-visual-premium::after { content:""; position:absolute; inset:0; z-index:-2; border:0; border-radius:0; animation:none; background:radial-gradient(circle at 26% 72%,rgba(251,92,40,.22),transparent 28%),radial-gradient(circle at 73% 24%,rgba(52,95,153,.18),transparent 26%); }
 .login-hero-grid { position:absolute; inset:0; z-index:-1; opacity:.10; background-image:linear-gradient(rgba(255,255,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px); background-size:54px 54px; mask-image:linear-gradient(180deg,transparent,black 22%,black 78%,transparent); }
@@ -348,7 +348,7 @@ td strong { color:var(--navy); }
   position:absolute;
   inset:-2%;
   z-index:-6;
-  background-image:url("/login/login-bg.webp");
+  background-image:url("/login/login-bg-v2.webp");
   background-size:cover;
   background-position:center center;
   background-repeat:no-repeat;
