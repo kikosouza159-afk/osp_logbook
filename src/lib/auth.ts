@@ -10,6 +10,7 @@ export type SessionUser = {
   name: string;
   username: string;
   role: AppRole;
+  must_change_password: boolean;
 };
 
 const COOKIE_NAME = "osp_session";
@@ -21,7 +22,7 @@ function secret() {
 }
 
 export async function createSession(user: SessionUser) {
-  const token = await new SignJWT({ name: user.name, username: user.username, role: user.role })
+  const token = await new SignJWT({ name: user.name, username: user.username, role: user.role, mustChangePassword: user.must_change_password })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(user.id)
     .setIssuedAt()
@@ -51,8 +52,8 @@ const getSessionUserCached = cache(async (): Promise<SessionUser | null> => {
   try {
     const { payload } = await jwtVerify(token, secret());
     if (!payload.sub) return null;
-    const result = await query<{ id: string; name: string; username: string; role: AppRole }>(
-      "SELECT id, name, username, role FROM users WHERE id = $1 AND active = TRUE",
+    const result = await query<{ id: string; name: string; username: string; role: AppRole; must_change_password: boolean }>(
+      "SELECT id, name, username, role, must_change_password FROM users WHERE id = $1 AND active = TRUE",
       [payload.sub]
     );
     return result.rows[0] ?? null;
@@ -68,6 +69,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 export async function requireUser(roles?: AppRole[]) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+  if (user.role === "ANALYST" && user.must_change_password) redirect("/change-password");
   if (roles && !roles.includes(user.role)) redirect("/");
   return user;
 }
