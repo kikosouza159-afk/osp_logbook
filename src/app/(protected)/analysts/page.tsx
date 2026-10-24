@@ -1,8 +1,9 @@
-import { Camera, Crown, Link2, UserPlus, UsersRound } from "lucide-react";
+import { Crown, Link2, UserPlus, UsersRound } from "lucide-react";
 import { assignAnalystClientAction, createAnalystAction, uploadAnalystPhotoAction } from "@/app/actions";
 import { getAnalysts, getClients } from "@/lib/queries";
 import { query } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { AnalystPhotoUploader } from "@/components/analyst-photo-uploader";
 
 function initials(name:string) {
   return name.split(" ").filter(Boolean).slice(0,2).map(p=>p[0]?.toUpperCase()).join("");
@@ -75,16 +76,12 @@ export default async function AnalystsPage(){
               <div><strong>{a.primary_count}</strong><span>Principal</span></div>
             </div>
 
-            <form action={uploadAnalystPhotoAction} className="analyst-photo-form" encType="multipart/form-data">
-              <input type="hidden" name="analyst_id" value={a.id}/>
-              <label className="analyst-file">
-                <Camera size={15}/>
-                <span>{a.has_photo ? "Trocar foto" : "Adicionar foto"}</span>
-                <input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required/>
-              </label>
-              <button className="btn btn-secondary" type="submit">Salvar foto</button>
-            </form>
-            <small className="analyst-photo-hint">JPG, PNG ou WEBP · máximo 3 MB</small>
+            <AnalystPhotoUploader
+              analystId={a.id}
+              analystName={a.name}
+              hasPhoto={a.has_photo}
+              action={uploadAnalystPhotoAction}
+            />
           </article>;
         })}
       </div>
