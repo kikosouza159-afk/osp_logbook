@@ -177,7 +177,22 @@ td strong { color:var(--navy); }
 .analyst-stats div { background:#F7F8FB; border:1px solid #ECEEF3; border-radius:11px; padding:10px; }
 .analyst-stats strong { display:block; color:var(--navy); font-size:18px; line-height:1; }
 .analyst-stats span { display:block; color:#7B8190; font-size:10px; margin-top:4px; text-transform:uppercase; letter-spacing:.04em; }
-.analyst-photo-form { display:grid; grid-template-columns:1fr auto; gap:8px; margin-top:14px; }
+.analyst-photo-uploader { margin-top:14px; }
+.analyst-photo-state { display:flex; align-items:center; gap:10px; padding:10px; border:1px solid #E5E8EF; border-radius:12px; background:#F8F9FC; }
+.analyst-photo-state.ready { border-color:#F5B59D; background:#FFF5F1; }
+.analyst-photo-state.saved { border-color:#CFE7DC; background:#F2FBF6; }
+.analyst-photo-thumb { width:42px; height:42px; border-radius:10px; overflow:hidden; display:grid; place-items:center; flex:0 0 auto; background:#EEF3FA; color:var(--blue); }
+.analyst-photo-state.ready .analyst-photo-thumb { background:#FFE7DE; color:var(--orange); }
+.analyst-photo-state.saved .analyst-photo-thumb { background:#E5F6ED; color:#168A5B; }
+.analyst-photo-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+.analyst-photo-state-copy { min-width:0; }
+.analyst-photo-state-copy strong { display:block; color:var(--navy); font-size:11px; line-height:1.25; }
+.analyst-photo-state-copy small { display:block; margin-top:3px; color:#7D8492; font-size:9px; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:230px; }
+.analyst-photo-actions { display:grid; grid-template-columns:1fr auto; gap:8px; margin-top:8px; }
+.analyst-photo-actions .btn { padding:9px 11px; font-size:11px; }
+.analyst-photo-actions .btn:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+.spin { animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
 .analyst-file { min-width:0; position:relative; display:flex; align-items:center; justify-content:center; gap:7px; border:1px dashed #C8CFDA; border-radius:11px; padding:10px; color:var(--blue); background:#FAFBFD; font-size:11px; font-weight:800; cursor:pointer; transition:.2s ease; overflow:hidden; }
 .analyst-file:hover { border-color:var(--orange); background:#FFF7F3; color:var(--orange); }
 .analyst-file input { position:absolute; inset:0; opacity:0; cursor:pointer; }
