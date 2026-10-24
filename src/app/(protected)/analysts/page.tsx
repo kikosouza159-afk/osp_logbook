@@ -96,7 +96,13 @@ export default async function AnalystsPage(){
             <div className="field"><label>Cargo</label><input className="input" name="position" placeholder="Analista"/></div>
             <div className="field"><label>E-mail</label><input className="input" name="email" type="email" required/></div>
             <div className="field"><label>Login</label><input className="input" name="username" required/></div>
-            <div className="field full"><label>Senha inicial</label><input className="input" name="password" type="password" minLength={6} required/></div>
+            <div className="field full">
+              <label>Senha inicial padrão</label>
+              <div className="default-password-box">
+                <strong>Senha padrão configurada</strong>
+                <span>O analista será obrigado a criar uma nova senha no primeiro acesso.</span>
+              </div>
+            </div>
           </div>
           <button className="btn btn-primary" style={{marginTop:18}}><UserPlus size={16}/> Criar analista</button>
         </form>
