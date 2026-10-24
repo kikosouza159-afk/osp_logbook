@@ -1,6 +1,8 @@
 import { query } from "@/lib/db";
 
-const TODAY = `DATE(created_at AT TIME ZONE 'America/Sao_Paulo') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')`;
+const DAY_START = `(date_trunc('day', CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo')`;
+const DAY_END = `((date_trunc('day', CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '1 day') AT TIME ZONE 'America/Sao_Paulo')`;
+const TODAY = `i.created_at >= ${DAY_START} AND i.created_at < ${DAY_END}`;
 
 export async function getDashboardSummary() {
   const [summary, products, statuses, recent, areas] = await Promise.all([
@@ -21,14 +23,14 @@ export async function getDashboardSummary() {
       SELECT p.code, COUNT(DISTINCT i.id)::text total
       FROM products p
       LEFT JOIN incident_products ip ON ip.product_id = p.id
-      LEFT JOIN incidents i ON i.id = ip.incident_id AND DATE(i.created_at AT TIME ZONE 'America/Sao_Paulo') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')
+      LEFT JOIN incidents i ON i.id = ip.incident_id AND i.created_at >= ${DAY_START} AND i.created_at < ${DAY_END}
       WHERE p.code IN ('LOCATOR','ADA')
       GROUP BY p.code
     `),
     query<{ code: string; label: string; total: string }>(`
       SELECT s.code, s.label, COUNT(i.id)::text total
       FROM incident_statuses s
-      LEFT JOIN incidents i ON i.status_code = s.code AND DATE(i.created_at AT TIME ZONE 'America/Sao_Paulo') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')
+      LEFT JOIN incidents i ON i.status_code = s.code AND i.created_at >= ${DAY_START} AND i.created_at < ${DAY_END}
       WHERE s.active = TRUE
       GROUP BY s.code, s.label, s.sort_order
       ORDER BY s.sort_order
@@ -45,7 +47,7 @@ export async function getDashboardSummary() {
       FROM areas a
       LEFT JOIN incidents i
         ON i.area_code = a.code
-       AND DATE(i.created_at AT TIME ZONE 'America/Sao_Paulo') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')
+       AND i.created_at >= ${DAY_START} AND i.created_at < ${DAY_END}
       WHERE a.active = TRUE
       GROUP BY a.code, a.name, a.sort_order
       ORDER BY a.sort_order
