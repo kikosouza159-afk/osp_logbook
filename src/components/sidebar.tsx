@@ -23,7 +23,7 @@ export function Sidebar({ user }: { user: SessionUser }) {
     <div className="side-logo"><img src="https://www.olos.com.br/wp-content/uploads/2022/12/logo-olos-laranja.png" alt="OLOS"/><div><div className="side-title">OSP LOGBOOK</div></div></div>
     <nav className="nav">{items.map(([href,label,Icon]) => {
       const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
-      return <Link className={`nav-link ${active ? "active" : ""}`} href={href} key={href}><Icon size={18}/><span>{label}</span></Link>;
+      return <Link prefetch={false} className={`nav-link ${active ? "active" : ""}`} href={href} key={href}><Icon size={18}/><span>{label}</span></Link>;
     })}</nav>
     <div className="side-footer"><div className="side-user"><strong>{user.name}</strong><span>@{user.username}</span></div><form action={logoutAction}><button className="btn btn-ghost" type="submit"><LogOut size={16}/> Sair</button></form></div>
   </aside>;
