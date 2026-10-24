@@ -125,6 +125,16 @@ td strong { color:var(--navy); }
 .login-error { background:#FFF0F0; color:#A72D2D; border:1px solid #FFD1D1; padding:10px 12px; border-radius:10px; margin-bottom:14px; font-size:13px; }
 .login-hint { margin-top:18px; padding-top:16px; border-top:1px solid var(--line); font-size:12px; color:#848999; }
 .login-hint code { color:var(--navy); background:#F0F2F7; padding:2px 5px; border-radius:5px; }
+.default-password-box { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border:1px solid #DDE5F0; border-radius:11px; background:#F6F9FD; }
+.default-password-box strong { color:var(--navy); font-size:12px; }
+.default-password-box span { color:#747B8A; font-size:11px; text-align:right; }
+.first-access-card { max-width:460px; }
+.first-access-icon { width:48px; height:48px; border-radius:14px; display:grid; place-items:center; margin-bottom:16px; background:#FFF0E9; color:var(--orange); }
+.password-policy { display:flex; flex-direction:column; gap:5px; margin-top:16px; padding:12px 14px; border-radius:12px; background:#F7F8FB; border:1px solid #E7EAF0; color:#747B8A; font-size:11px; }
+.password-policy strong { color:var(--navy); font-size:12px; margin-bottom:2px; }
+.password-field-icon { position:absolute; right:12px; top:10px; color:#8790A2; pointer-events:none; }
+.first-access-page .password-wrap .input { padding-right:42px; }
+
 .area-options { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; }
 .area-option { position:relative; display:flex; align-items:center; gap:10px; padding:12px; border:1px solid #E0E4EB; border-radius:13px; background:#FAFBFC; cursor:pointer; transition:.2s ease; min-height:74px; }
 .area-option:hover { border-color:#B9C6D9; transform:translateY(-1px); }
