@@ -102,9 +102,28 @@ export async function getAreas() {
 }
 
 export async function getAnalysts() {
-  return (await query<{ id: string; name: string; email: string | null; username: string; role: string; position: string | null; active: boolean }>(
-    "SELECT id, name, email, username, role, position, active FROM users WHERE role IN ('ADMIN','ANALYST') ORDER BY name"
-  )).rows;
+  return (await query<{
+    id: string; name: string; email: string | null; username: string; role: string; position: string | null; active: boolean;
+    client_count: number; primary_count: number; has_photo: boolean; photo_updated_at: string | null;
+  }>(`
+    SELECT
+      u.id,
+      u.name,
+      u.email,
+      u.username,
+      u.role,
+      u.position,
+      u.active,
+      COUNT(ac.client_id)::int AS client_count,
+      COUNT(ac.client_id) FILTER (WHERE ac.is_primary = TRUE)::int AS primary_count,
+      (u.photo_data IS NOT NULL) AS has_photo,
+      u.photo_updated_at::text
+    FROM users u
+    LEFT JOIN analyst_clients ac ON ac.analyst_id = u.id
+    WHERE u.role IN ('ADMIN','ANALYST')
+    GROUP BY u.id
+    ORDER BY CASE WHEN u.role='ADMIN' THEN 0 ELSE 1 END, u.name
+  `)).rows;
 }
 
 export async function getIncidents(filters: { q?: string; status?: string; client?: string; analyst?: string; product?: string; area?: string } = {}, limit = 100) {
