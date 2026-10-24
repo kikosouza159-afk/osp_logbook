@@ -11,6 +11,7 @@ function initials(name:string) {
 
 export default async function AnalystsPage(){
   await requireUser(["ADMIN"]);
+  const initialPassword = process.env.ANALYST_INITIAL_PASSWORD || "Não configurada";
 
   const [analysts,clients,links]=await Promise.all([
     getAnalysts(),
@@ -59,6 +60,7 @@ export default async function AnalystsPage(){
                 <span className={`analyst-status ${a.active ? "active" : "inactive"}`}>
                   {a.active ? "Ativo" : "Inativo"}
                 </span>
+                {a.role==="ANALYST" && a.must_change_password && <span className="badge first-access-pending">1º acesso pendente</span>}
               </div>
             </div>
 
@@ -99,8 +101,8 @@ export default async function AnalystsPage(){
             <div className="field full">
               <label>Senha inicial padrão</label>
               <div className="default-password-box">
-                <strong>Senha padrão configurada</strong>
-                <span>O analista será obrigado a criar uma nova senha no primeiro acesso.</span>
+                <div><strong>Senha padrão</strong><code>{initialPassword}</code></div>
+                <span>Troca obrigatória no primeiro acesso.</span>
               </div>
             </div>
           </div>
