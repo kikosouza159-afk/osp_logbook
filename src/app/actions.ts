@@ -103,9 +103,7 @@ export async function changeFirstPasswordAction(formData: FormData) {
 
   if (newPassword.length < 8) redirect("/change-password?error=length");
   if (newPassword !== confirmPassword) redirect("/change-password?error=match");
-  if (await bcrypt.compare(newPassword, await bcrypt.hash(analystInitialPassword(), 12))) {
-    redirect("/change-password?error=default");
-  }
+  if (newPassword === analystInitialPassword()) redirect("/change-password?error=default");
 
   const hash = await bcrypt.hash(newPassword, 12);
   await query(
