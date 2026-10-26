@@ -228,42 +228,22 @@ export default async function DashboardPage({
         </article>
       </div>
 
-      <div className="checklist-dashboard-two">
-        <section className="card checklist-ranking-panel">
-          <div className="panel-title">
-            <div><h2>Progresso por analista</h2><p>Consolidação dos clientes vinculados a cada analista.</p></div>
-            <span className="badge">{analysts.length} analista(s)</span>
-          </div>
-          <div className="checklist-ranking-list">
-            {analystSummary.map(a => <div className="checklist-ranking-row" key={a.id}>
-              <div className="checklist-ranking-meta">
-                <strong>{a.name}</strong>
-                <span>{a.completedClients}/{a.linked} cliente(s) em 100%</span>
-              </div>
-              <div className="checklist-ranking-bar"><span style={{width:`${a.pct}%`}}/></div>
-              <b>{a.pct}%</b>
-            </div>)}
-            {!analystSummary.length && <div className="empty"><strong>Sem analistas vinculados</strong>Cadastre ou vincule analistas para iniciar o acompanhamento.</div>}
-          </div>
-        </section>
-
-        <section className="card checklist-ranking-panel">
-          <div className="panel-title">
-            <div><h2>Progresso por cliente</h2><p>Consolidação do checklist entre os analistas vinculados.</p></div>
-            <span className="badge">{clients.length} cliente(s)</span>
-          </div>
-          <div className="checklist-ranking-list">
-            {clientSummary.map(c => <div className="checklist-ranking-row" key={c.id}>
-              <div className="checklist-ranking-meta">
-                <strong>{c.display_name}</strong>
-                <span>{c.linked ? `${c.completedAnalysts}/${c.linked} analista(s) em 100%` : "Sem analista vinculado"}</span>
-              </div>
-              <div className="checklist-ranking-bar"><span style={{width:`${c.pct}%`}}/></div>
-              <b>{c.pct}%</b>
-            </div>)}
-          </div>
-        </section>
-      </div>
+      <section className="card checklist-ranking-panel checklist-ranking-wide">
+        <div className="panel-title">
+          <div><h2>Progresso por cliente</h2><p>Consolidação do checklist entre os analistas vinculados.</p></div>
+          <span className="badge">{clients.length} cliente(s)</span>
+        </div>
+        <div className="checklist-ranking-list checklist-client-ranking-list">
+          {clientSummary.map(c => <div className="checklist-ranking-row" key={c.id}>
+            <div className="checklist-ranking-meta">
+              <strong>{c.display_name}</strong>
+              <span>{c.linked ? `${c.completedAnalysts}/${c.linked} analista(s) em 100%` : "Sem analista vinculado"}</span>
+            </div>
+            <div className="checklist-ranking-bar"><span style={{width:`${c.pct}%`}}/></div>
+            <b>{c.pct}%</b>
+          </div>)}
+        </div>
+      </section>
 
       <section className="analyst-progress-section">
         <div className="analyst-progress-section-head">
