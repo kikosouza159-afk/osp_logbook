@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { createSession, destroySession, getSessionUser, requireUser } from "@/lib/auth";
 import { getPool, query } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { CHECKLIST_ITEMS } from "@/lib/checklist";
 
 const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
 
@@ -297,6 +298,107 @@ export async function assignAnalystClientAction(formData: FormData) {
   );
   await audit(actor.id, "ASSIGN_ANALYST", "client", clientId, { analystId, isPrimary });
   revalidatePath("/analysts");
+}
+
+export async function saveChecklistAction(formData: FormData) {
+  const actor = await requireUser(["ADMIN", "ANALYST"]);
+  const checklistDate = text(formData, "checklist_date");
+  const requestedAnalystId = text(formData, "analyst_id");
+  const clientId = text(formData, "client_id");
+
+  const parsed = z.object({
+    checklistDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    analystId: z.string().uuid(),
+    clientId: z.string().uuid(),
+  }).safeParse({
+    checklistDate,
+    analystId: requestedAnalystId,
+    clientId,
+  });
+
+  if (!parsed.success) throw new Error("Analista, cliente ou data inválidos.");
+
+  const analystId = actor.role === "ADMIN" ? requestedAnalystId : actor.id;
+  if (actor.role !== "ADMIN" && requestedAnalystId !== actor.id) {
+    throw new Error("O analista só pode preencher o próprio checklist.");
+  }
+
+  const target = (await query<{ id:string; active:boolean }>(
+    "SELECT id, active FROM users WHERE id=$1 AND role='ANALYST'",
+    [analystId]
+  )).rows[0];
+  if (!target?.active) throw new Error("Analista não encontrado ou inativo.");
+
+  const assigned = (await query<{ ok:number }>(
+    "SELECT 1 ok FROM analyst_clients WHERE analyst_id=$1 AND client_id=$2 LIMIT 1",
+    [analystId, clientId]
+  )).rows[0];
+  if (!assigned) throw new Error("Este cliente não está vinculado ao analista selecionado.");
+
+  const client = await getPool().connect();
+  let checklistId = "";
+  try {
+    await client.query("BEGIN");
+
+    const checklist = await client.query<{ id:string }>(
+      `INSERT INTO daily_checklists(checklist_date, analyst_id, client_id, created_by)
+       VALUES($1::date,$2,$3,$4)
+       ON CONFLICT(checklist_date, analyst_id, client_id)
+       DO UPDATE SET updated_at=NOW()
+       RETURNING id`,
+      [checklistDate, analystId, clientId, actor.id]
+    );
+    checklistId = checklist.rows[0].id;
+
+    for (const item of CHECKLIST_ITEMS) {
+      const completed = formData.get(`done_${item.key}`) === "on";
+      const observation = text(formData, `note_${item.key}`);
+
+      await client.query(
+        `INSERT INTO daily_checklist_items(
+           checklist_id,item_key,completed,observation,completed_at,updated_by,updated_at
+         )
+         VALUES($1,$2,$3,$4,CASE WHEN $3 THEN NOW() ELSE NULL END,$5,NOW())
+         ON CONFLICT(checklist_id,item_key)
+         DO UPDATE SET
+           completed=EXCLUDED.completed,
+           observation=EXCLUDED.observation,
+           completed_at=CASE
+             WHEN EXCLUDED.completed AND daily_checklist_items.completed_at IS NULL THEN NOW()
+             WHEN EXCLUDED.completed THEN daily_checklist_items.completed_at
+             ELSE NULL
+           END,
+           updated_by=EXCLUDED.updated_by,
+           updated_at=NOW()`,
+        [checklistId, item.key, completed, nullable(observation), actor.id]
+      );
+    }
+
+    const completedCount = CHECKLIST_ITEMS.filter(
+      (item) => formData.get(`done_${item.key}`) === "on"
+    ).length;
+
+    await client.query(
+      "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'SAVE_DAILY_CHECKLIST','daily_checklist',$2,$3::jsonb)",
+      [actor.id, checklistId, JSON.stringify({
+        analystId,
+        clientId,
+        checklistDate,
+        completed: completedCount,
+        total: CHECKLIST_ITEMS.length,
+      })]
+    );
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  revalidatePath("/checklist");
+  redirect(`/checklist?date=${encodeURIComponent(checklistDate)}&analyst=${encodeURIComponent(analystId)}&client=${encodeURIComponent(clientId)}&saved=1`);
 }
 
 export async function createIncidentAction(formData: FormData) {
