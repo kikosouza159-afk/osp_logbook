@@ -99,7 +99,7 @@ export async function adminUpdateUserPasswordAction(formData: FormData) {
   const userId = text(formData, "user_id");
   const newPassword = text(formData, "new_password");
   const confirmPassword = text(formData, "confirm_password");
-  const forceChange = formData.get("force_change") === "on";
+  const forceChangeRequested = formData.get("force_change") === "on";
 
   const parsed = z.object({
     userId: z.string().uuid(),
@@ -116,6 +116,7 @@ export async function adminUpdateUserPasswordAction(formData: FormData) {
   )).rows[0];
   if (!target) throw new Error("Usuário não encontrado.");
 
+  const forceChange = target.role === "ANALYST" && forceChangeRequested;
   const hash = await bcrypt.hash(newPassword, 12);
   await query(
     "UPDATE users SET password_hash=$2, must_change_password=$3, updated_at=NOW() WHERE id=$1",
@@ -129,6 +130,7 @@ export async function adminUpdateUserPasswordAction(formData: FormData) {
   });
 
   revalidatePath("/analysts");
+  redirect(`/analysts?password_updated=${encodeURIComponent(target.username)}`);
 }
 
 export async function changeFirstPasswordAction(formData: FormData) {
