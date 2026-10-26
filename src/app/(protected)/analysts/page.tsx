@@ -1,5 +1,5 @@
-import { Crown, KeyRound, Link2, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
-import { adminUpdateUserPasswordAction, assignAnalystClientAction, createAnalystAction, uploadAnalystPhotoAction } from "@/app/actions";
+import { Crown, KeyRound, Link2, PencilLine, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
+import { adminUpdateUserPasswordAction, adminUpdateUserProfileAction, assignAnalystClientAction, createAnalystAction, uploadAnalystPhotoAction } from "@/app/actions";
 import { getAnalysts, getClients } from "@/lib/queries";
 import { query } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
@@ -13,6 +13,7 @@ export default async function AnalystsPage({ searchParams }: { searchParams: Pro
   await requireUser(["ADMIN"]);
   const sp = await searchParams;
   const passwordUpdated = typeof sp.password_updated === "string" ? sp.password_updated : "";
+  const userUpdated = typeof sp.user_updated === "string" ? sp.user_updated : "";
   const initialPassword = process.env.ANALYST_INITIAL_PASSWORD || "Não configurada";
 
   const [analysts,clients,links]=await Promise.all([
@@ -36,6 +37,7 @@ export default async function AnalystsPage({ searchParams }: { searchParams: Pro
     </div>
 
     {passwordUpdated && <div className="password-success-banner"><ShieldCheck size={17}/><span>Senha de <strong>@{passwordUpdated}</strong> atualizada com sucesso.</span></div>}
+    {userUpdated && <div className="password-success-banner"><ShieldCheck size={17}/><span>Dados de <strong>@{userUpdated}</strong> atualizados com sucesso.</span></div>}
 
     <section className="analyst-team-section">
       <div className="panel-title analyst-team-title">
@@ -60,7 +62,9 @@ export default async function AnalystsPage({ searchParams }: { searchParams: Pro
               <div className="analyst-role">
                 {a.role==="ADMIN"
                   ? <span className="badge analyst-admin"><Crown size={12}/> Administrador</span>
-                  : <span className="badge">Analista</span>}
+                  : a.role==="VIEWER"
+                    ? <span className="badge analyst-viewer">Visualizador</span>
+                    : <span className="badge">Analista</span>}
                 <span className={`analyst-status ${a.active ? "active" : "inactive"}`}>
                   {a.active ? "Ativo" : "Inativo"}
                 </span>
@@ -88,6 +92,52 @@ export default async function AnalystsPage({ searchParams }: { searchParams: Pro
               hasPhoto={a.has_photo}
               action={uploadAnalystPhotoAction}
             />
+
+            <details className="analyst-edit-panel">
+              <summary><PencilLine size={15}/> Editar usuário</summary>
+              <form action={adminUpdateUserProfileAction} className="analyst-edit-form">
+                <input type="hidden" name="user_id" value={a.id}/>
+                <div className="analyst-edit-grid">
+                  <div className="field">
+                    <label>Nome</label>
+                    <input className="input" name="name" defaultValue={a.name} minLength={2} required/>
+                  </div>
+                  <div className="field">
+                    <label>Cargo</label>
+                    <input className="input" name="position" defaultValue={a.position || ""} placeholder="Cargo / função"/>
+                  </div>
+                  <div className="field">
+                    <label>E-mail</label>
+                    <input className="input" type="email" name="email" defaultValue={a.email || ""} required/>
+                  </div>
+                  <div className="field">
+                    <label>Login</label>
+                    <input className="input" name="username" defaultValue={a.username} minLength={3} required/>
+                  </div>
+                  <div className="field">
+                    <label>Perfil de acesso</label>
+                    <select className="select" name="role" defaultValue={a.role}>
+                      <option value="ADMIN">Administrador</option>
+                      <option value="ANALYST">Analista</option>
+                      <option value="VIEWER">Visualizador</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Status</label>
+                    <select className="select" name="active" defaultValue={a.active ? "true" : "false"}>
+                      <option value="true">Ativo</option>
+                      <option value="false">Inativo</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="analyst-edit-note">
+                  Alterações de perfil e status entram em vigor no próximo acesso/recarregamento do usuário.
+                </div>
+                <button className="btn btn-primary analyst-edit-button" type="submit">
+                  <ShieldCheck size={15}/> Salvar alterações
+                </button>
+              </form>
+            </details>
 
             <details className="analyst-password-panel">
               <summary><KeyRound size={15}/> Gerenciar senha</summary>
@@ -159,7 +209,7 @@ export default async function AnalystsPage({ searchParams }: { searchParams: Pro
             <label>Analista</label>
             <select className="select" name="analyst_id" required>
               <option value="">Selecione</option>
-              {analysts.filter(a=>a.active).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+              {analysts.filter(a=>a.active && a.role!=="VIEWER").map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>
           <div className="field" style={{marginTop:12}}>
