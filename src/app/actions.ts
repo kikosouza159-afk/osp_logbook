@@ -305,6 +305,7 @@ export async function saveChecklistAction(formData: FormData) {
   const checklistDate = text(formData, "checklist_date");
   const requestedAnalystId = text(formData, "analyst_id");
   const clientId = text(formData, "client_id");
+  const returnItem = text(formData, "return_item");
 
   const parsed = z.object({
     checklistDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -335,8 +336,22 @@ export async function saveChecklistAction(formData: FormData) {
   )).rows[0];
   if (!assigned) throw new Error("Este cliente não está vinculado ao analista selecionado.");
 
+  const visibleItems = CHECKLIST_ITEMS.filter(
+    (item) => formData.get(`present_${item.key}`) === "1"
+  );
+  if (!visibleItems.length) throw new Error("Nenhuma validação foi enviada para atualização.");
+
+  const statusSchema = z.enum(["EM_VALIDACAO","COM_ERRO","CONCLUIDO"]);
   const client = await getPool().connect();
   let checklistId = "";
+  const changes: Array<{
+    itemKey:string;
+    fromStatus:string|null;
+    toStatus:string;
+    fromObservation:string|null;
+    toObservation:string|null;
+  }> = [];
+
   try {
     await client.query("BEGIN");
 
@@ -350,33 +365,65 @@ export async function saveChecklistAction(formData: FormData) {
     );
     checklistId = checklist.rows[0].id;
 
-    for (const item of CHECKLIST_ITEMS) {
-      const completed = formData.get(`done_${item.key}`) === "on";
+    for (const item of visibleItems) {
+      const rawStatus = text(formData, `status_${item.key}`) || "EM_VALIDACAO";
+      const parsedStatus = statusSchema.safeParse(rawStatus);
+      if (!parsedStatus.success) throw new Error(`Status inválido para ${item.action}.`);
+
+      const status = parsedStatus.data;
       const observation = text(formData, `note_${item.key}`);
+      const current = (await client.query<{status:string;observation:string|null}>(
+        "SELECT status,observation FROM daily_checklist_items WHERE checklist_id=$1 AND item_key=$2",
+        [checklistId,item.key]
+      )).rows[0];
 
       await client.query(
         `INSERT INTO daily_checklist_items(
-           checklist_id,item_key,completed,observation,completed_at,updated_by,updated_at
+           checklist_id,item_key,status,completed,observation,completed_at,updated_by,updated_at
          )
-         VALUES($1,$2,$3,$4,CASE WHEN $3 THEN NOW() ELSE NULL END,$5,NOW())
+         VALUES(
+           $1,$2,$3,$3='CONCLUIDO',$4,
+           CASE WHEN $3='CONCLUIDO' THEN NOW() ELSE NULL END,
+           $5,NOW()
+         )
          ON CONFLICT(checklist_id,item_key)
          DO UPDATE SET
-           completed=EXCLUDED.completed,
+           status=EXCLUDED.status,
+           completed=(EXCLUDED.status='CONCLUIDO'),
            observation=EXCLUDED.observation,
            completed_at=CASE
-             WHEN EXCLUDED.completed AND daily_checklist_items.completed_at IS NULL THEN NOW()
-             WHEN EXCLUDED.completed THEN daily_checklist_items.completed_at
+             WHEN EXCLUDED.status='CONCLUIDO' AND daily_checklist_items.completed_at IS NULL THEN NOW()
+             WHEN EXCLUDED.status='CONCLUIDO' THEN daily_checklist_items.completed_at
              ELSE NULL
            END,
            updated_by=EXCLUDED.updated_by,
            updated_at=NOW()`,
-        [checklistId, item.key, completed, nullable(observation), actor.id]
+        [checklistId, item.key, status, nullable(observation), actor.id]
       );
+
+      const beforeStatus = current?.status ?? null;
+      const beforeObservation = current?.observation ?? null;
+      const afterObservation = nullable(observation);
+      if (beforeStatus !== status || beforeObservation !== afterObservation) {
+        changes.push({
+          itemKey:item.key,
+          fromStatus:beforeStatus,
+          toStatus:status,
+          fromObservation:beforeObservation,
+          toObservation:afterObservation,
+        });
+      }
     }
 
-    const completedCount = CHECKLIST_ITEMS.filter(
-      (item) => formData.get(`done_${item.key}`) === "on"
-    ).length;
+    const totals = (await client.query<{completed:number;validation:number;errors:number}>(
+      `SELECT
+         COUNT(*) FILTER (WHERE status='CONCLUIDO')::int completed,
+         COUNT(*) FILTER (WHERE status='EM_VALIDACAO')::int validation,
+         COUNT(*) FILTER (WHERE status='COM_ERRO')::int errors
+       FROM daily_checklist_items
+       WHERE checklist_id=$1`,
+      [checklistId]
+    )).rows[0];
 
     await client.query(
       "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'SAVE_DAILY_CHECKLIST','daily_checklist',$2,$3::jsonb)",
@@ -384,8 +431,11 @@ export async function saveChecklistAction(formData: FormData) {
         analystId,
         clientId,
         checklistDate,
-        completed: completedCount,
-        total: CHECKLIST_ITEMS.length,
+        updatedItems: visibleItems.map(item => item.key),
+        completed: totals?.completed ?? 0,
+        validation: totals?.validation ?? 0,
+        errors: totals?.errors ?? 0,
+        changes,
       })]
     );
 
@@ -398,7 +448,9 @@ export async function saveChecklistAction(formData: FormData) {
   }
 
   revalidatePath("/checklist");
-  redirect(`/checklist?date=${encodeURIComponent(checklistDate)}&analyst=${encodeURIComponent(analystId)}&client=${encodeURIComponent(clientId)}&saved=1`);
+  revalidatePath("/");
+  const itemParam = returnItem ? `&item=${encodeURIComponent(returnItem)}` : "";
+  redirect(`/checklist?date=${encodeURIComponent(checklistDate)}&analyst=${encodeURIComponent(analystId)}&client=${encodeURIComponent(clientId)}${itemParam}&saved=1`);
 }
 
 export async function createIncidentAction(formData: FormData) {
