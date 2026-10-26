@@ -94,6 +94,93 @@ export async function createAnalystAction(formData: FormData) {
   revalidatePath("/analysts");
 }
 
+export async function adminUpdateUserProfileAction(formData: FormData) {
+  const actor = await requireUser(["ADMIN"]);
+  const data = {
+    userId: text(formData, "user_id"),
+    name: text(formData, "name"),
+    position: text(formData, "position"),
+    email: text(formData, "email"),
+    username: text(formData, "username"),
+    role: text(formData, "role"),
+    active: text(formData, "active"),
+  };
+
+  const parsed = z.object({
+    userId: z.string().uuid(),
+    name: z.string().min(2),
+    position: z.string().max(120).optional(),
+    email: z.string().email(),
+    username: z.string().min(3).max(80),
+    role: z.enum(["ADMIN","ANALYST","VIEWER"]),
+    active: z.enum(["true","false"]),
+  }).safeParse(data);
+
+  if (!parsed.success) throw new Error("Dados do usuário inválidos.");
+
+  const current = (await query<{
+    id:string; name:string; email:string|null; username:string; role:string; position:string|null; active:boolean;
+  }>(
+    "SELECT id,name,email,username,role,position,active FROM users WHERE id=$1",
+    [data.userId]
+  )).rows[0];
+
+  if (!current) throw new Error("Usuário não encontrado.");
+
+  const duplicate = (await query<{ id:string }>(
+    "SELECT id FROM users WHERE id<>$1 AND (LOWER(username)=LOWER($2) OR LOWER(email)=LOWER($3)) LIMIT 1",
+    [data.userId, data.username, data.email]
+  )).rows[0];
+  if (duplicate) throw new Error("Já existe outro usuário com este login ou e-mail.");
+
+  const nextActive = data.active === "true";
+  const removingAdmin = current.role === "ADMIN" && (data.role !== "ADMIN" || !nextActive);
+  if (removingAdmin) {
+    const admins = (await query<{ total:string }>(
+      "SELECT COUNT(*)::text total FROM users WHERE role='ADMIN' AND active=TRUE AND id<>$1",
+      [data.userId]
+    )).rows[0];
+    if (Number(admins?.total ?? 0) === 0) {
+      throw new Error("Não é possível rebaixar ou desativar o último administrador ativo.");
+    }
+  }
+
+  await query(
+    `UPDATE users
+     SET name=$2,
+         position=$3,
+         email=$4,
+         username=$5,
+         role=$6,
+         active=$7,
+         updated_at=NOW()
+     WHERE id=$1`,
+    [data.userId, data.name, nullable(data.position), data.email, data.username, data.role, nextActive]
+  );
+
+  await audit(actor.id, "ADMIN_UPDATE_USER_PROFILE", "user", data.userId, {
+    before: {
+      name: current.name,
+      position: current.position,
+      email: current.email,
+      username: current.username,
+      role: current.role,
+      active: current.active,
+    },
+    after: {
+      name: data.name,
+      position: nullable(data.position),
+      email: data.email,
+      username: data.username,
+      role: data.role,
+      active: nextActive,
+    },
+  });
+
+  revalidatePath("/analysts");
+  redirect(`/analysts?user_updated=${encodeURIComponent(data.username)}`);
+}
+
 export async function adminUpdateUserPasswordAction(formData: FormData) {
   const actor = await requireUser(["ADMIN"]);
   const userId = text(formData, "user_id");
