@@ -18,7 +18,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     status: 200,
     headers: {
       "Content-Type": row.photo_mime,
-      "Cache-Control": "private, max-age=3600",
+      "Cache-Control": "private, no-store, max-age=0",
     },
   });
 }
