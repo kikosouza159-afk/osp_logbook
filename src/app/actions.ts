@@ -198,7 +198,7 @@ export async function createIncidentAction(formData: FormData) {
     await client.query(`INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'CREATE_INCIDENT','incident',$2,$3::jsonb)`, [user.id,incidentId,JSON.stringify({ clientId:data.clientId,area:data.area,products:data.products,status:data.status })]);
     await client.query("COMMIT");
   } catch (e) { await client.query("ROLLBACK"); throw e; } finally { client.release(); }
-  revalidatePath("/"); revalidatePath("/incidents"); revalidatePath("/logbook");
+  revalidatePath("/"); revalidatePath("/incidents"); revalidatePath("/logbook"); revalidatePath("/history");
   redirect(`/incidents/${incidentId}`);
 }
 
@@ -215,7 +215,7 @@ export async function updateIncidentAction(formData: FormData) {
   if (current.assigned_user_id !== analyst) await query("INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'ASSIGN_ANALYST',$3,$4)",[id,user.id,current.assigned_user_id,analyst]);
   if (current.area_code !== area) await query("INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'AREA_CHANGE',$3,$4)",[id,user.id,current.area_code,area]);
   await audit(user.id,"UPDATE_INCIDENT","incident",id,{status,priority,analyst,area});
-  revalidatePath(`/incidents/${id}`); revalidatePath("/incidents"); revalidatePath("/");
+  revalidatePath(`/incidents/${id}`); revalidatePath("/incidents"); revalidatePath("/"); revalidatePath("/history");
 }
 
 export async function addTicketResponseAction(formData: FormData) {
@@ -229,6 +229,6 @@ export async function addTicketResponseAction(formData: FormData) {
   await query("INSERT INTO incident_updates(incident_id,user_id,update_type,new_value,comment) VALUES($1,$2,'TICKET_RESPONSE',$3,$4)",[incidentId,user.id,result.rows[0].id,"Resposta do chamado registrada"]);
   if (statusAfter) await query("UPDATE incidents SET status_code=$2, updated_at=NOW(), resolved_at=CASE WHEN $2 IN ('RESOLVIDO','ENCERRADO') THEN COALESCE(resolved_at,NOW()) ELSE NULL END WHERE id=$1",[incidentId,statusAfter]);
   await audit(user.id,"CREATE_RESPONSE","ticket_response",result.rows[0].id,{incidentId,statusAfter});
-  revalidatePath(`/incidents/${incidentId}`); revalidatePath("/responses"); revalidatePath("/");
+  revalidatePath(`/incidents/${incidentId}`); revalidatePath("/responses"); revalidatePath("/"); revalidatePath("/history");
   redirect(`/incidents/${incidentId}`);
 }
