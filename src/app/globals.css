@@ -1619,3 +1619,18 @@ td strong { color:var(--navy); }
     grid-auto-columns:minmax(150px,175px);
   }
 }
+
+/* Checklist grouped actions */
+.checklist-table-status {
+  min-width:1120px;
+}
+.checklist-table-status th:nth-child(1) { width:220px; }
+.checklist-table-status th:nth-child(2) { width:300px; }
+.checklist-table-status th:nth-child(3) { width:390px; }
+.checklist-table-status th:nth-child(4) { width:320px; }
+.checklist-action-card-mini {
+  margin-top:1px;
+  color:#B06A26;
+  font-size:8px;
+  font-weight:800;
+}
