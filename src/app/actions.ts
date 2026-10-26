@@ -94,6 +94,7 @@ export async function createAnalystAction(formData: FormData) {
   revalidatePath("/analysts");
 }
 
+// Admin user profile management
 export async function adminUpdateUserProfileAction(formData: FormData) {
   const actor = await requireUser(["ADMIN"]);
   const data = {
