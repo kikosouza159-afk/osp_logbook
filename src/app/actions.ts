@@ -305,7 +305,7 @@ export async function saveChecklistAction(formData: FormData) {
   const checklistDate = text(formData, "checklist_date");
   const requestedAnalystId = text(formData, "analyst_id");
   const clientId = text(formData, "client_id");
-  const returnItem = text(formData, "return_item");
+  const returnAction = text(formData, "return_action");
 
   const parsed = z.object({
     checklistDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -449,8 +449,8 @@ export async function saveChecklistAction(formData: FormData) {
 
   revalidatePath("/checklist");
   revalidatePath("/");
-  const itemParam = returnItem ? `&item=${encodeURIComponent(returnItem)}` : "";
-  redirect(`/checklist?date=${encodeURIComponent(checklistDate)}&analyst=${encodeURIComponent(analystId)}&client=${encodeURIComponent(clientId)}${itemParam}&saved=1`);
+  const actionParam = returnAction ? `&action=${encodeURIComponent(returnAction)}` : "";
+  redirect(`/checklist?date=${encodeURIComponent(checklistDate)}&analyst=${encodeURIComponent(analystId)}&client=${encodeURIComponent(clientId)}${actionParam}&saved=1`);
 }
 
 export async function createIncidentAction(formData: FormData) {
