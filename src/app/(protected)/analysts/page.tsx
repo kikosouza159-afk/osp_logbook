@@ -1,5 +1,5 @@
-import { Crown, Link2, UserPlus, UsersRound } from "lucide-react";
-import { assignAnalystClientAction, createAnalystAction, uploadAnalystPhotoAction } from "@/app/actions";
+import { Crown, KeyRound, Link2, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
+import { adminUpdateUserPasswordAction, assignAnalystClientAction, createAnalystAction, uploadAnalystPhotoAction } from "@/app/actions";
 import { getAnalysts, getClients } from "@/lib/queries";
 import { query } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
@@ -84,6 +84,44 @@ export default async function AnalystsPage(){
               hasPhoto={a.has_photo}
               action={uploadAnalystPhotoAction}
             />
+
+            <details className="analyst-password-panel">
+              <summary><KeyRound size={15}/> Gerenciar senha</summary>
+              <form action={adminUpdateUserPasswordAction} className="analyst-password-form">
+                <input type="hidden" name="user_id" value={a.id}/>
+                <div className="field">
+                  <label>Nova senha</label>
+                  <input
+                    className="input"
+                    type="password"
+                    name="new_password"
+                    minLength={8}
+                    autoComplete="new-password"
+                    placeholder="Mínimo 8 caracteres"
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label>Confirmar nova senha</label>
+                  <input
+                    className="input"
+                    type="password"
+                    name="confirm_password"
+                    minLength={8}
+                    autoComplete="new-password"
+                    placeholder="Repita a nova senha"
+                    required
+                  />
+                </div>
+                <label className="check analyst-force-change">
+                  <input type="checkbox" name="force_change"/>
+                  Solicitar troca no próximo login
+                </label>
+                <button className="btn btn-secondary analyst-password-button" type="submit">
+                  <ShieldCheck size={15}/> Atualizar senha
+                </button>
+              </form>
+            </details>
           </article>;
         })}
       </div>
