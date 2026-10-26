@@ -5,6 +5,7 @@ import {
   UsersRound, ChartNoAxesColumnIncreasing, CalendarDays, ArrowUpRight
 } from "lucide-react";
 import { KpiCard } from "@/components/kpi-card";
+import { HeaderUserAvatar } from "@/components/header-user-avatar";
 import { getDashboardSummary, getIncidents } from "@/lib/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { formatDateTime, formatTime } from "@/lib/format";
@@ -34,7 +35,7 @@ function todaySaoPaulo() {
 type Analyst = { id:string; name:string };
 type Client = { id:string; display_name:string };
 type Assignment = { analyst_id:string; client_id:string };
-type ProgressRow = { analyst_id:string; client_id:string; completed:number; updated_at:string|null };
+type ProgressRow = { analyst_id:string; client_id:string; completed:number; errors:number; validating:number; updated_at:string|null };
 
 export default async function DashboardPage({
   searchParams,
@@ -83,7 +84,9 @@ export default async function DashboardPage({
         SELECT
           dc.analyst_id,
           dc.client_id,
-          COUNT(dci.id) FILTER (WHERE dci.completed=TRUE)::int completed,
+          COUNT(dci.id) FILTER (WHERE dci.status='CONCLUIDO')::int completed,
+          COUNT(dci.id) FILTER (WHERE dci.status='COM_ERRO')::int errors,
+          COUNT(dci.id) FILTER (WHERE dci.status='EM_VALIDACAO')::int validating,
           MAX(dc.updated_at)::text updated_at
         FROM daily_checklists dc
         LEFT JOIN daily_checklist_items dci ON dci.checklist_id=dc.id
@@ -100,31 +103,53 @@ export default async function DashboardPage({
     const assignmentSet = new Set(assignments.map(a => `${a.analyst_id}:${a.client_id}`));
     const progressMap = new Map(progressRes.rows.map(r => [
       `${r.analyst_id}:${r.client_id}`,
-      { completed:Number(r.completed || 0), updated_at:r.updated_at }
+      {
+        completed:Number(r.completed || 0),
+        errors:Number(r.errors || 0),
+        validating:Number(r.validating || 0),
+        updated_at:r.updated_at
+      }
     ]));
 
     const getPairProgress = (analystId:string, clientId:string) => {
       if (!assignmentSet.has(`${analystId}:${clientId}`)) return null;
       const row = progressMap.get(`${analystId}:${clientId}`);
       const completed = row?.completed || 0;
+      const errors = row?.errors || 0;
+      const validating = row?.validating || 0;
       return {
         completed,
+        errors,
+        validating,
         pct: totalItems ? Math.round((completed / totalItems) * 100) : 0,
+        errorPct: totalItems ? Math.round((errors / totalItems) * 100) : 0,
         updated_at: row?.updated_at || null,
       };
     };
 
     const analystSummary = analysts.map(a => {
-      const linked = clients.filter(c => assignmentSet.has(`${a.id}:${c.id}`));
-      const progresses = linked.map(c => getPairProgress(a.id,c.id)!).filter(Boolean);
-      const completedItems = progresses.reduce((sum,p) => sum + p.completed,0);
-      const expected = linked.length * totalItems;
+      const linkedClients = clients
+        .filter(c => assignmentSet.has(`${a.id}:${c.id}`))
+        .map(c => ({
+          ...c,
+          progress: getPairProgress(a.id,c.id)!,
+        }));
+      const completedItems = linkedClients.reduce((sum,c) => sum + c.progress.completed,0);
+      const errorItems = linkedClients.reduce((sum,c) => sum + c.progress.errors,0);
+      const validatingItems = linkedClients.reduce((sum,c) => sum + c.progress.validating,0);
+      const expected = linkedClients.length * totalItems;
       const pct = expected ? Math.round((completedItems / expected) * 100) : 0;
+      const errorPct = expected ? Math.round((errorItems / expected) * 100) : 0;
       return {
         ...a,
-        linked: linked.length,
-        completedClients: progresses.filter(p => p.pct === 100).length,
+        linked: linkedClients.length,
+        completedClients: linkedClients.filter(c => c.progress.pct === 100).length,
         pct,
+        errorPct,
+        completedItems,
+        errorItems,
+        validatingItems,
+        clients: linkedClients,
       };
     });
 
@@ -240,49 +265,102 @@ export default async function DashboardPage({
         </section>
       </div>
 
-      <section className="card checklist-matrix-panel">
-        <div className="panel-title checklist-matrix-title">
+      <section className="analyst-progress-section">
+        <div className="analyst-progress-section-head">
           <div>
-            <h2>Matriz de progresso · Analista × Cliente</h2>
-            <p>Visão estilo Gantt para identificar rapidamente checklists pendentes, em andamento e concluídos.</p>
+            <span className="checklist-hero-kicker">Analista × Cliente</span>
+            <h2>Acompanhamento do time</h2>
+            <p>Cada card consolida o checklist do analista e detalha o progresso dos clientes vinculados.</p>
           </div>
-          <div className="checklist-matrix-legend">
-            <span><i className="status-zero"/>0%</span>
-            <span><i className="status-progress"/>Em andamento</span>
-            <span><i className="status-done"/>100%</span>
-            <span><i className="status-unlinked"/>Não vinculado</span>
+          <div className="analyst-progress-legend">
+            <span><i className="done"/>Concluído</span>
+            <span><i className="error"/>Com erro</span>
+            <span><i className="validating"/>Em validação</span>
           </div>
         </div>
 
-        <div className="checklist-matrix-wrap">
-          <table className="checklist-matrix">
-            <thead>
-              <tr>
-                <th>Analista</th>
-                {clients.map(c => <th key={c.id} title={c.display_name}>{c.display_name}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {analysts.map(a => <tr key={a.id}>
-                <th>{a.name}</th>
-                {clients.map(c => {
-                  const progress = getPairProgress(a.id,c.id);
-                  if (!progress) return <td key={c.id}><div className="matrix-cell unlinked" title="Cliente não vinculado a este analista">—</div></td>;
-                  const state = progress.pct === 100 ? "done" : progress.pct > 0 ? "progress" : "zero";
-                  return <td key={c.id}>
-                    <Link
-                      className={`matrix-cell ${state}`}
-                      href={`/checklist?date=${checklistDate}&analyst=${a.id}&client=${c.id}`}
-                      title={`${a.name} · ${c.display_name}: ${progress.completed}/${totalItems} validações`}
-                    >
-                      <span className="matrix-cell-value">{progress.pct}%</span>
-                      <span className="matrix-cell-track"><i style={{width:`${progress.pct}%`}}/></span>
-                    </Link>
-                  </td>;
-                })}
-              </tr>)}
-            </tbody>
-          </table>
+        <div className="analyst-progress-grid">
+          {analystSummary.map(a => <article className="card analyst-progress-card" key={a.id}>
+            <div className="analyst-progress-header">
+              <HeaderUserAvatar userId={a.id} name={a.name} variant="analyst-card"/>
+              <div className="analyst-progress-identity">
+                <span>Analista</span>
+                <h3>{a.name}</h3>
+                <small>{a.linked} cliente(s) vinculado(s)</small>
+              </div>
+              <div className="analyst-progress-total">
+                <strong>{a.pct}%</strong>
+                <span>concluído</span>
+              </div>
+            </div>
+
+            <div className="analyst-progress-metrics">
+              <div className="analyst-progress-metric done">
+                <span>Concluído</span>
+                <strong>{a.pct}%</strong>
+                <small>{a.completedItems} validações</small>
+              </div>
+              <div className="analyst-progress-metric error">
+                <span>Com erro</span>
+                <strong>{a.errorPct}%</strong>
+                <small>{a.errorItems} validações</small>
+              </div>
+              <div className="analyst-progress-metric validating">
+                <span>Em validação</span>
+                <strong>{a.validatingItems}</strong>
+                <small>itens em andamento</small>
+              </div>
+            </div>
+
+            <div className="analyst-progress-stack" aria-label={`Progresso geral de ${a.name}`}>
+              <span className="done" style={{width:`${a.pct}%`}}/>
+              <span className="error" style={{width:`${a.errorPct}%`}}/>
+            </div>
+
+            <div className="analyst-client-list-head">
+              <div>
+                <strong>Clientes associados</strong>
+                <span>{a.completedClients}/{a.linked} concluídos em 100%</span>
+              </div>
+            </div>
+
+            <div className="analyst-client-list">
+              {a.clients.map(client => {
+                const p = client.progress;
+                const state = p.pct === 100 ? "done" : p.errors > 0 ? "error" : p.completed > 0 || p.validating > 0 ? "progress" : "zero";
+                return <Link
+                  key={client.id}
+                  className={`analyst-client-row ${state}`}
+                  href={`/checklist?date=${checklistDate}&analyst=${a.id}&client=${client.id}`}
+                  title={`Abrir checklist de ${client.display_name}`}
+                >
+                  <div className="analyst-client-main">
+                    <div className="analyst-client-name">
+                      <strong>{client.display_name}</strong>
+                      <span>{p.completed}/{totalItems} validações concluídas</span>
+                    </div>
+                    <b>{p.pct}%</b>
+                  </div>
+                  <div className="analyst-client-track">
+                    <span className="done" style={{width:`${p.pct}%`}}/>
+                  </div>
+                  <div className="analyst-client-footer">
+                    <span className="client-status">
+                      {p.pct === 100 ? "Concluído" : p.errors > 0 ? `${p.errors} com erro` : p.validating > 0 ? `${p.validating} em validação` : "Não iniciado"}
+                    </span>
+                    {p.errors > 0 && <span className="client-error-pill">{p.errorPct}% erro</span>}
+                    <span className="client-open">Abrir checklist <ArrowUpRight size={13}/></span>
+                  </div>
+                </Link>;
+              })}
+              {!a.clients.length && <div className="analyst-client-empty">Nenhum cliente vinculado a este analista.</div>}
+            </div>
+          </article>)}
+
+          {!analystSummary.length && <div className="card empty">
+            <strong>Sem analistas vinculados</strong>
+            Cadastre ou vincule analistas para iniciar o acompanhamento.
+          </div>}
         </div>
       </section>
 
