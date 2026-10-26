@@ -94,6 +94,43 @@ export async function createAnalystAction(formData: FormData) {
   revalidatePath("/analysts");
 }
 
+export async function adminUpdateUserPasswordAction(formData: FormData) {
+  const actor = await requireUser(["ADMIN"]);
+  const userId = text(formData, "user_id");
+  const newPassword = text(formData, "new_password");
+  const confirmPassword = text(formData, "confirm_password");
+  const forceChange = formData.get("force_change") === "on";
+
+  const parsed = z.object({
+    userId: z.string().uuid(),
+    newPassword: z.string().min(8),
+    confirmPassword: z.string().min(8),
+  }).safeParse({ userId, newPassword, confirmPassword });
+
+  if (!parsed.success) throw new Error("Informe uma senha com no mínimo 8 caracteres.");
+  if (newPassword !== confirmPassword) throw new Error("A confirmação da senha não confere.");
+
+  const target = (await query<{ id:string; name:string; username:string; role:string }>(
+    "SELECT id,name,username,role FROM users WHERE id=$1 AND role IN ('ADMIN','ANALYST','VIEWER')",
+    [userId]
+  )).rows[0];
+  if (!target) throw new Error("Usuário não encontrado.");
+
+  const hash = await bcrypt.hash(newPassword, 12);
+  await query(
+    "UPDATE users SET password_hash=$2, must_change_password=$3, updated_at=NOW() WHERE id=$1",
+    [userId, hash, forceChange]
+  );
+
+  await audit(actor.id, "ADMIN_CHANGE_USER_PASSWORD", "user", userId, {
+    targetUsername: target.username,
+    targetRole: target.role,
+    forceChange,
+  });
+
+  revalidatePath("/analysts");
+}
+
 export async function changeFirstPasswordAction(formData: FormData) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
