@@ -123,9 +123,9 @@ export async function getAnalysts() {
       u.photo_updated_at::text
     FROM users u
     LEFT JOIN analyst_clients ac ON ac.analyst_id = u.id
-    WHERE u.role IN ('ADMIN','ANALYST')
+    WHERE u.role IN ('ADMIN','ANALYST','VIEWER')
     GROUP BY u.id
-    ORDER BY CASE WHEN u.role='ADMIN' THEN 0 ELSE 1 END, u.name
+    ORDER BY CASE WHEN u.role='ADMIN' THEN 0 WHEN u.role='ANALYST' THEN 1 ELSE 2 END, u.name
   `)).rows;
 }
 
