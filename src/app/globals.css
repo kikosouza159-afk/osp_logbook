@@ -641,3 +641,75 @@ td strong { color:var(--navy); }
   justify-content:center;
   min-height:40px;
 }
+
+/* User profile management */
+.analyst-viewer {
+  background:#EEF3FA;
+  color:#345F99;
+  border-color:#D8E2F0;
+}
+.analyst-edit-panel {
+  margin-top:14px;
+  padding-top:12px;
+  border-top:1px solid #EEF1F6;
+}
+.analyst-edit-panel summary {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  cursor:pointer;
+  list-style:none;
+  color:var(--navy);
+  font-size:12px;
+  font-weight:900;
+  user-select:none;
+}
+.analyst-edit-panel summary::-webkit-details-marker { display:none; }
+.analyst-edit-panel summary::after {
+  content:"+";
+  margin-left:auto;
+  width:24px;
+  height:24px;
+  display:grid;
+  place-items:center;
+  border-radius:8px;
+  background:#F3F5F9;
+  color:var(--blue);
+  font-size:16px;
+  transition:.2s ease;
+}
+.analyst-edit-panel[open] summary::after { content:"−"; transform:rotate(180deg); }
+.analyst-edit-form {
+  margin-top:13px;
+  padding:14px;
+  border-radius:14px;
+  background:#F8FAFD;
+  border:1px solid #E8EDF4;
+}
+.analyst-edit-grid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+.analyst-edit-form .field { margin:0; }
+.analyst-edit-form label { font-size:11px; }
+.analyst-edit-form .input,
+.analyst-edit-form .select { min-height:40px; }
+.analyst-edit-note {
+  margin-top:10px;
+  padding:9px 10px;
+  border-radius:10px;
+  background:#FFF7ED;
+  color:#9A4B17;
+  font-size:10px;
+  line-height:1.45;
+}
+.analyst-edit-button {
+  width:100%;
+  justify-content:center;
+  min-height:40px;
+  margin-top:12px;
+}
+@media (max-width:700px) {
+  .analyst-edit-grid { grid-template-columns:1fr; }
+}
