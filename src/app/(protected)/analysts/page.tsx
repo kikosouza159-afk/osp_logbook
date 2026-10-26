@@ -9,8 +9,10 @@ function initials(name:string) {
   return name.split(" ").filter(Boolean).slice(0,2).map(p=>p[0]?.toUpperCase()).join("");
 }
 
-export default async function AnalystsPage(){
+export default async function AnalystsPage({ searchParams }: { searchParams: Promise<Record<string,string|string[]|undefined>> }){
   await requireUser(["ADMIN"]);
+  const sp = await searchParams;
+  const passwordUpdated = typeof sp.password_updated === "string" ? sp.password_updated : "";
   const initialPassword = process.env.ANALYST_INITIAL_PASSWORD || "Não configurada";
 
   const [analysts,clients,links]=await Promise.all([
@@ -32,6 +34,8 @@ export default async function AnalystsPage(){
         <p>Gerencie usuários operacionais, fotos de perfil e a carteira de clientes.</p>
       </div>
     </div>
+
+    {passwordUpdated && <div className="password-success-banner"><ShieldCheck size={17}/><span>Senha de <strong>@{passwordUpdated}</strong> atualizada com sucesso.</span></div>}
 
     <section className="analyst-team-section">
       <div className="panel-title analyst-team-title">
@@ -113,10 +117,10 @@ export default async function AnalystsPage(){
                     required
                   />
                 </div>
-                <label className="check analyst-force-change">
+                {a.role==="ANALYST" && <label className="check analyst-force-change">
                   <input type="checkbox" name="force_change"/>
                   Solicitar troca no próximo login
-                </label>
+                </label>}
                 <button className="btn btn-secondary analyst-password-button" type="submit">
                   <ShieldCheck size={15}/> Atualizar senha
                 </button>
