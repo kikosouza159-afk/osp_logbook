@@ -3,7 +3,7 @@ import {
   AlertTriangle, CalendarDays, CheckCircle2, ClipboardCheck, Clock3, Save, UserRound
 } from "lucide-react";
 import { saveChecklistAction } from "@/app/actions";
-import { CHECKLIST_ITEMS } from "@/lib/checklist";
+import { CHECKLIST_ACTIONS, CHECKLIST_ITEMS } from "@/lib/checklist";
 import { requireUser } from "@/lib/auth";
 import { query } from "@/lib/db";
 
@@ -47,7 +47,7 @@ export default async function ChecklistPage({
 
   const date = get("date") || todaySaoPaulo();
   const saved = get("saved") === "1";
-  const selectedItemKey = get("item");
+  const selectedActionKey = get("action");
 
   const analysts: Analyst[] = user.role === "ADMIN"
     ? (await query<Analyst>(
@@ -98,13 +98,15 @@ export default async function ChecklistPage({
   const pending = total - completed;
   const progress = total ? Math.round((completed / total) * 100) : 0;
 
-  const selectedItem = CHECKLIST_ITEMS.find(item => item.key === selectedItemKey) ?? null;
-  const visibleItems = selectedItem ? [selectedItem] : CHECKLIST_ITEMS;
+  const selectedAction = CHECKLIST_ACTIONS.find(action => action.key === selectedActionKey) ?? null;
+  const visibleItems = selectedAction
+    ? CHECKLIST_ITEMS.filter(item => item.actionKey === selectedAction.key)
+    : CHECKLIST_ITEMS;
 
-  const baseHref = (itemKey?:string) => {
+  const baseHref = (actionKey?:string) => {
     if (!selectedAnalyst || !selectedClient) return "/checklist";
-    const itemPart = itemKey ? `&item=${encodeURIComponent(itemKey)}` : "";
-    return `/checklist?date=${encodeURIComponent(date)}&analyst=${encodeURIComponent(selectedAnalyst.id)}&client=${encodeURIComponent(selectedClient.id)}${itemPart}`;
+    const actionPart = actionKey ? `&action=${encodeURIComponent(actionKey)}` : "";
+    return `/checklist?date=${encodeURIComponent(date)}&analyst=${encodeURIComponent(selectedAnalyst.id)}&client=${encodeURIComponent(selectedClient.id)}${actionPart}`;
   };
 
   return <>
@@ -140,7 +142,7 @@ export default async function ChecklistPage({
         </select>
       </div>
 
-      {selectedItem && <input type="hidden" name="item" value={selectedItem.key}/>}
+      {selectedAction && <input type="hidden" name="action" value={selectedAction.key}/>}
       <button className="btn btn-secondary" type="submit">
         <ClipboardCheck size={16}/> Carregar checklist
       </button>
@@ -181,13 +183,13 @@ export default async function ChecklistPage({
         <div className="checklist-action-filter-head">
           <div>
             <h2>Filtrar por ação</h2>
-            <p>Selecione uma ação para trabalhar somente aquela validação ou use Todos para atualizar o checklist completo.</p>
+            <p>Selecione uma ação para visualizar todas as validações daquele grupo ou use Todos para atualizar o checklist completo.</p>
           </div>
           <span className="badge">{visibleItems.length} validação(ões) visível(is)</span>
         </div>
 
         <div className="checklist-action-cards">
-          <Link className={`checklist-action-card all ${!selectedItem ? "active" : ""}`} href={baseHref()}>
+          <Link className={`checklist-action-card all ${!selectedAction ? "active" : ""}`} href={baseHref()}>
             <span className="checklist-action-card-index">ALL</span>
             <strong>Todos</strong>
             <small>{total} validações</small>
@@ -198,19 +200,38 @@ export default async function ChecklistPage({
             </div>
           </Link>
 
-          {CHECKLIST_ITEMS.map((item,index) => {
-            const value = itemMap.get(item.key);
-            const state = value?.status ?? "NAO_INICIADO";
-            const stateLabel = value ? statusLabel[value.status] : "Não iniciado";
+          {CHECKLIST_ACTIONS.map((action,index) => {
+            const groupItems = CHECKLIST_ITEMS.filter(item => item.actionKey === action.key);
+            const groupRows = groupItems.map(item => itemMap.get(item.key)).filter(Boolean) as ItemRow[];
+            const groupCompleted = groupItems.filter(item => itemMap.get(item.key)?.status === "CONCLUIDO").length;
+            const groupErrors = groupItems.filter(item => itemMap.get(item.key)?.status === "COM_ERRO").length;
+            const groupValidation = groupItems.filter(item => itemMap.get(item.key)?.status === "EM_VALIDACAO").length;
+            const groupStarted = groupRows.length;
+            const state = groupErrors > 0
+              ? "COM_ERRO"
+              : groupCompleted === groupItems.length && groupItems.length > 0
+                ? "CONCLUIDO"
+                : groupStarted > 0
+                  ? "EM_VALIDACAO"
+                  : "NAO_INICIADO";
+            const stateLabel = state === "COM_ERRO"
+              ? `${groupErrors} com erro`
+              : state === "CONCLUIDO"
+                ? "100% concluído"
+                : state === "EM_VALIDACAO"
+                  ? `${groupCompleted}/${groupItems.length} concluídas`
+                  : "Não iniciado";
+
             return <Link
-              key={item.key}
-              className={`checklist-action-card state-${state.toLowerCase()} ${selectedItem?.key === item.key ? "active" : ""}`}
-              href={baseHref(item.key)}
+              key={action.key}
+              className={`checklist-action-card state-${state.toLowerCase()} ${selectedAction?.key === action.key ? "active" : ""}`}
+              href={baseHref(action.key)}
             >
               <span className="checklist-action-card-index">{String(index+1).padStart(2,"0")}</span>
-              <strong>{item.action}</strong>
-              <small>{item.validation || "Validação operacional"}</small>
+              <strong>{action.label}</strong>
+              <small>{groupItems.length} validação(ões)</small>
               <span className="checklist-action-card-status">{stateLabel}</span>
+              {groupValidation > 0 && state !== "COM_ERRO" && <span className="checklist-action-card-mini">{groupValidation} em validação</span>}
             </Link>;
           })}
         </div>
@@ -220,12 +241,12 @@ export default async function ChecklistPage({
         <input type="hidden" name="checklist_date" value={date}/>
         <input type="hidden" name="analyst_id" value={selectedAnalyst.id}/>
         <input type="hidden" name="client_id" value={selectedClient.id}/>
-        {selectedItem && <input type="hidden" name="return_item" value={selectedItem.key}/>}
+        {selectedAction && <input type="hidden" name="return_action" value={selectedAction.key}/>}
 
         <div className="checklist-card-head">
           <div>
             <span className="checklist-client-kicker">Cliente · {selectedClient.display_name}</span>
-            <h2>{selectedItem ? selectedItem.action : "Todas as validações"}</h2>
+            <h2>{selectedAction ? selectedAction.label : "Todas as validações"}</h2>
             <p>Altere o status durante o dia. Itens com erro podem voltar para validação e depois serem concluídos.</p>
           </div>
           <button className="btn btn-primary" type="submit">
@@ -239,7 +260,6 @@ export default async function ChecklistPage({
               <tr>
                 <th>Ação</th>
                 <th>Validação</th>
-                <th>Referência</th>
                 <th>Status</th>
                 <th>Observação</th>
               </tr>
@@ -262,8 +282,7 @@ export default async function ChecklistPage({
                     <input type="hidden" name={`present_${item.key}`} value="1"/>
                     <strong>{item.action}</strong>
                   </td>
-                  <td>{item.validation || "—"}</td>
-                  <td>{item.detail || "—"}</td>
+                  <td>{item.validation}</td>
                   <td>
                     <div className="checklist-status-flags">
                       <label className="checklist-status-flag validation">
