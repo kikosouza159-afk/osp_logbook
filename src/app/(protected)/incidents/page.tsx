@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { PencilLine, Plus, Search } from "lucide-react";
-import { getAnalysts, getAreas, getClients, getIncidents, getProducts, getStatuses } from "@/lib/queries";
+import { getAnalysts, getAreas, getClientPortfolios, getIncidents, getProducts, getStatuses } from "@/lib/queries";
 import { StatusBadge } from "@/components/status-badge";
-import { clientOptionLabel, formatDateTime } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import { requireUser } from "@/lib/auth";
 import { DeleteIncidentButton } from "@/components/delete-incident-button";
 
@@ -10,11 +10,11 @@ export default async function IncidentsPage({ searchParams }: { searchParams: Pr
   const user = await requireUser();
   const sp = await searchParams;
   const get = (k:string) => typeof sp[k] === "string" ? String(sp[k]) : "";
-  const filters = { q:get("q"), status:get("status"), client:get("client"), analyst:get("analyst"), product:get("product"), area:get("area") };
+  const filters = { q:get("q"), status:get("status"), portfolio:get("portfolio"), analyst:get("analyst"), product:get("product"), area:get("area") };
   const deleted = get("deleted");
   const canEdit = user.role === "ADMIN" || user.role === "ANALYST";
-  const [incidents, clients, analysts, products, statuses, areas] = await Promise.all([
-    getIncidents(filters,100),getClients(),getAnalysts(),getProducts(),getStatuses(),getAreas()
+  const [incidents, portfolios, analysts, products, statuses, areas] = await Promise.all([
+    getIncidents(filters,100),getClientPortfolios(),getAnalysts(),getProducts(),getStatuses(),getAreas()
   ]);
 
   return <>
@@ -24,7 +24,7 @@ export default async function IncidentsPage({ searchParams }: { searchParams: Pr
       <div className="field filter-search"><label>Pesquisar</label><input className="input" name="q" defaultValue={filters.q} placeholder="Cliente, chamado, título ou descrição"/></div>
       <div className="field"><label>Status</label><select className="select" name="status" defaultValue={filters.status}><option value="">Todos</option>{statuses.map(s=><option key={s.code} value={s.code}>{s.label}</option>)}</select></div>
       <div className="field"><label>Área</label><select className="select" name="area" defaultValue={filters.area}><option value="">Todas</option>{areas.map(a=><option key={a.code} value={a.code}>{a.name}</option>)}</select></div>
-      <div className="field"><label>Cliente</label><select className="select" name="client" defaultValue={filters.client}><option value="">Todos</option>{clients.map(c=><option key={c.id} value={c.id}>{clientOptionLabel(c.display_name,c.products)}</option>)}</select></div>
+      <div className="field"><label>Cliente</label><select className="select" name="portfolio" defaultValue={filters.portfolio}><option value="">Todos</option>{portfolios.map(portfolio=><option key={portfolio.id} value={portfolio.id}>{portfolio.client_name} · {portfolio.product_code}</option>)}</select></div>
       <div className="field"><label>Produto</label><select className="select" name="product" defaultValue={filters.product}><option value="">Todos</option>{products.map(p=><option key={p.id} value={p.code}>{p.name}</option>)}</select></div>
       <div className="field"><label>Analista</label><select className="select" name="analyst" defaultValue={filters.analyst}><option value="">Todos</option>{analysts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
       <div style={{display:"flex",alignItems:"end",gap:8}}><button className="btn btn-primary" type="submit"><Search size={16}/> Filtrar</button><Link className="btn btn-secondary" href="/incidents">Limpar</Link></div>
