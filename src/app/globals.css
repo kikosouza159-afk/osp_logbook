@@ -4655,3 +4655,48 @@ html[data-theme="dark"] .elite-kpi.tone-warning .kpi-icon { background:#342B18;c
 html[data-theme="dark"] .elite-kpi.tone-danger .kpi-icon { background:#391F24;color:#FF9198;border-color:rgba(255,145,152,.08); }
 html[data-theme="dark"] .elite-kpi.tone-blue .kpi-icon { background:#192B40;color:#9BC8F7;border-color:rgba(155,200,247,.08); }
 html[data-theme="dark"] .elite-kpi.tone-violet .kpi-icon { background:#282340;color:#C0B7F5;border-color:rgba(192,183,245,.08); }
+
+
+/* Elite status visualization */
+.badge.NOVO::before,
+.badge.EM_ANALISE::before,
+.badge.EM_TRATATIVA::before,
+.badge.AGUARDANDO_RETORNO::before,
+.badge.AGUARDANDO_CLIENTE::before,
+.badge.AGUARDANDO_SUSTENTACAO::before,
+.badge.RESOLVIDO::before,
+.badge.ENCERRADO::before,
+.badge.CRITICA::before,
+.badge.ALTA::before {
+  content:"";
+  width:5px;
+  height:5px;
+  flex:0 0 5px;
+  border-radius:50%;
+  background:currentColor;
+  opacity:.78;
+  box-shadow:0 0 0 2px color-mix(in srgb,currentColor 12%,transparent);
+}
+.status-row:has(.badge.NOVO) .bar > span { background:linear-gradient(90deg,#6574D9,#8993E6); }
+.status-row:has(.badge.EM_ANALISE) .bar > span,
+.status-row:has(.badge.EM_TRATATIVA) .bar > span { background:linear-gradient(90deg,#345F99,#6C93C2); }
+.status-row:has(.badge.AGUARDANDO_RETORNO) .bar > span,
+.status-row:has(.badge.AGUARDANDO_CLIENTE) .bar > span,
+.status-row:has(.badge.AGUARDANDO_SUSTENTACAO) .bar > span { background:linear-gradient(90deg,#C98B21,#E4B54F); }
+.status-row:has(.badge.RESOLVIDO) .bar > span,
+.status-row:has(.badge.ENCERRADO) .bar > span { background:linear-gradient(90deg,#168A5B,#42B985); }
+.status-row:has(.badge.CRITICA) .bar > span { background:linear-gradient(90deg,#C43B3B,#EF6B6B); }
+.status-row:has(.badge.ALTA) .bar > span { background:linear-gradient(90deg,#D85E28,#F28A58); }
+
+@supports not (color:color-mix(in srgb,red 10%,transparent)) {
+  .badge.NOVO::before,
+  .badge.EM_ANALISE::before,
+  .badge.EM_TRATATIVA::before,
+  .badge.AGUARDANDO_RETORNO::before,
+  .badge.AGUARDANDO_CLIENTE::before,
+  .badge.AGUARDANDO_SUSTENTACAO::before,
+  .badge.RESOLVIDO::before,
+  .badge.ENCERRADO::before,
+  .badge.CRITICA::before,
+  .badge.ALTA::before { box-shadow:none; }
+}
