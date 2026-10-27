@@ -744,17 +744,69 @@ export async function uploadAnalystPhotoAction(formData: FormData) {
 export async function assignAnalystClientAction(formData: FormData) {
   const actor = await requireUser(["ADMIN"]);
   const analystId = text(formData, "analyst_id");
-  const clientId = text(formData, "client_id");
-  const isPrimary = formData.get("is_primary") === "on";
-  if (!analystId || !clientId) throw new Error("Selecione analista e cliente.");
-  if (isPrimary) await query("UPDATE analyst_clients SET is_primary=FALSE WHERE client_id=$1", [clientId]);
-  await query(
-    `INSERT INTO analyst_clients(analyst_id,client_id,is_primary) VALUES($1,$2,$3)
-     ON CONFLICT(analyst_id,client_id) DO UPDATE SET is_primary=EXCLUDED.is_primary`,
-    [analystId, clientId, isPrimary]
-  );
-  await audit(actor.id, "ASSIGN_ANALYST", "client", clientId, { analystId, isPrimary });
+  const portfolioId = text(formData, "portfolio_id");
+
+  const parsed = z.object({
+    analystId:z.string().uuid(),
+    portfolioId:z.string().uuid(),
+  }).safeParse({analystId,portfolioId});
+  if (!parsed.success) throw new Error("Selecione analista e carteira.");
+
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+
+    const targetAnalyst = (await client.query<{id:string}>(
+      "SELECT id FROM users WHERE id=$1 AND active=TRUE AND role IN ('ADMIN','ANALYST')",
+      [analystId]
+    )).rows[0];
+    if (!targetAnalyst) throw new Error("Analista não encontrado ou inativo.");
+
+    const portfolio = (await client.query<{id:string;client_id:string;product_id:string;client_name:string;product_code:string}>(
+      `SELECT cp.id,cp.client_id,cp.product_id,c.display_name client_name,p.code product_code
+       FROM client_portfolios cp
+       JOIN clients c ON c.id=cp.client_id
+       JOIN products p ON p.id=cp.product_id
+       WHERE cp.id=$1 AND cp.active=TRUE AND c.active=TRUE`,
+      [portfolioId]
+    )).rows[0];
+    if (!portfolio) throw new Error("Carteira não encontrada ou inativa.");
+
+    await client.query(
+      "UPDATE client_portfolios SET analyst_id=$2,updated_at=NOW() WHERE id=$1",
+      [portfolioId,analystId]
+    );
+
+    await client.query(
+      `INSERT INTO analyst_clients(analyst_id,client_id,is_primary)
+       VALUES($1,$2,FALSE)
+       ON CONFLICT(analyst_id,client_id) DO NOTHING`,
+      [analystId,portfolio.client_id]
+    );
+
+    await client.query(
+      "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'ASSIGN_ANALYST_PORTFOLIO','client_portfolio',$2,$3::jsonb)",
+      [actor.id,portfolioId,JSON.stringify({
+        analystId,
+        clientId:portfolio.client_id,
+        clientName:portfolio.client_name,
+        productId:portfolio.product_id,
+        productCode:portfolio.product_code,
+      })]
+    );
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
   revalidatePath("/analysts");
+  revalidatePath("/clients");
+  revalidatePath("/checklist");
+  revalidatePath("/");
 }
 
 export async function saveChecklistAction(formData: FormData) {
