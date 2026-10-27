@@ -301,7 +301,7 @@ export async function assignAnalystClientAction(formData: FormData) {
 }
 
 export async function saveChecklistAction(formData: FormData) {
-  const actor = await requireUser(["ADMIN", "ANALYST"]);
+  const actor = await requireUser();
   const checklistDate = text(formData, "checklist_date");
   const requestedAnalystId = text(formData, "analyst_id");
   const clientId = text(formData, "client_id");
@@ -319,22 +319,19 @@ export async function saveChecklistAction(formData: FormData) {
 
   if (!parsed.success) throw new Error("Analista, cliente ou data inválidos.");
 
-  const analystId = actor.role === "ADMIN" ? requestedAnalystId : actor.id;
-  if (actor.role !== "ADMIN" && requestedAnalystId !== actor.id) {
-    throw new Error("O analista só pode preencher o próprio checklist.");
-  }
+  const analystId = requestedAnalystId;
 
   const target = (await query<{ id:string; active:boolean }>(
     "SELECT id, active FROM users WHERE id=$1 AND role='ANALYST'",
     [analystId]
   )).rows[0];
-  if (!target?.active) throw new Error("Analista não encontrado ou inativo.");
+  if (!target?.active) throw new Error("Analista responsável não encontrado ou inativo.");
 
-  const assigned = (await query<{ ok:number }>(
-    "SELECT 1 ok FROM analyst_clients WHERE analyst_id=$1 AND client_id=$2 LIMIT 1",
-    [analystId, clientId]
+  const targetClient = (await query<{ id:string }>(
+    "SELECT id FROM clients WHERE id=$1 AND active=TRUE",
+    [clientId]
   )).rows[0];
-  if (!assigned) throw new Error("Este cliente não está vinculado ao analista selecionado.");
+  if (!targetClient) throw new Error("Cliente não encontrado ou inativo.");
 
   const visibleItems = CHECKLIST_ITEMS.filter(
     (item) => formData.get(`present_${item.key}`) === "1"
@@ -436,6 +433,8 @@ export async function saveChecklistAction(formData: FormData) {
         analystId,
         clientId,
         checklistDate,
+        performedByUserId: actor.id,
+        performedByName: actor.name,
         updatedItems: visibleItems.map(item => item.key),
         completed: totals?.completed ?? 0,
         validation: totals?.validation ?? 0,
