@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Archive, CheckCircle2, Clock3, Search } from "lucide-react";
 import { query } from "@/lib/db";
-import { formatDateTime } from "@/lib/format";
+import { clientOptionLabel, formatDateTime } from "@/lib/format";
 import { StatusBadge } from "@/components/status-badge";
 import { KpiCard } from "@/components/kpi-card";
 import { getAreas, getClients, getStatuses } from "@/lib/queries";
@@ -138,7 +138,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
         <label>Cliente</label>
         <select className="select" name="client" defaultValue={filters.client}>
           <option value="">Todos</option>
-          {clients.map(c=><option key={c.id} value={c.id}>{c.display_name}</option>)}
+          {clients.map(c=><option key={c.id} value={c.id}>{clientOptionLabel(c.display_name,c.products)}</option>)}
         </select>
       </div>
       <div className="field">

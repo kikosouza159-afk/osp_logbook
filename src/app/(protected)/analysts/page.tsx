@@ -4,6 +4,7 @@ import { getAnalysts, getClients } from "@/lib/queries";
 import { query } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { AnalystPhotoUploader } from "@/components/analyst-photo-uploader";
+import { clientOptionLabel } from "@/lib/format";
 
 function initials(name:string) {
   return name.split(" ").filter(Boolean).slice(0,2).map(p=>p[0]?.toUpperCase()).join("");
@@ -217,7 +218,7 @@ export default async function AnalystsPage({ searchParams }: { searchParams: Pro
             <label>Cliente</label>
             <select className="select" name="client_id" required>
               <option value="">Selecione</option>
-              {clients.filter(c=>c.active).map(c=><option key={c.id} value={c.id}>{c.display_name}</option>)}
+              {clients.map(c=><option key={c.id} value={c.id}>{clientOptionLabel(c.display_name,c.products)}</option>)}
             </select>
           </div>
           <label className="check" style={{width:"fit-content",marginTop:12}}>

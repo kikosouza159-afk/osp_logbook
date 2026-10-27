@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, Save, Target, RadioTower, FlaskConical, Code2, MessagesSquare, Layers3 } from "lucide-react";
 import { createIncidentAction } from "@/app/actions";
 import { getAnalysts, getAreas, getClients, getPriorities, getProducts, getStatuses } from "@/lib/queries";
+import { clientOptionLabel } from "@/lib/format";
 
 const areaIcons = {
   OSP: Target,
@@ -19,7 +20,7 @@ export default async function NewIncidentPage() {
   return <>
     <div className="page-head"><div><h1>Novo registro</h1><p>Inclua um novo ponto no diário de bordo operacional.</p></div><Link className="btn btn-secondary" href="/incidents"><ArrowLeft size={16}/> Voltar</Link></div>
     <form action={createIncidentAction} className="card form-card"><div className="form-grid">
-      <div className="field"><label>Cliente *</label><select className="select" name="client_id" required><option value="">Selecione</option>{clients.filter(c=>c.active).map(c=><option value={c.id} key={c.id}>{c.display_name}</option>)}</select></div>
+      <div className="field"><label>Cliente *</label><select className="select" name="client_id" required><option value="">Selecione</option>{clients.map(c=><option value={c.id} key={c.id}>{clientOptionLabel(c.display_name,c.products)}</option>)}</select></div>
       <div className="field"><label>Analista responsável</label><select className="select" name="assigned_user_id"><option value="">Não atribuído</option>{analysts.filter(a=>a.active).map(a=><option value={a.id} key={a.id}>{a.name}</option>)}</select></div>
 
       <div className="field full">

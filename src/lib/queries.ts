@@ -77,11 +77,18 @@ export async function getDashboardSummary() {
 
 export async function getClients() {
   return (await query<{ id: string; name: string; display_name: string; active: boolean; products: string | null }>(`
-    SELECT c.id, c.name, c.display_name, c.active,
-      STRING_AGG(p.code, ', ' ORDER BY p.code) products
+    SELECT
+      c.id,
+      c.name,
+      c.display_name,
+      c.active,
+      STRING_AGG(DISTINCT p.code, ', ' ORDER BY p.code) products
     FROM clients c
-    LEFT JOIN client_products cp ON cp.client_id = c.id
-    LEFT JOIN products p ON p.id = cp.product_id
+    LEFT JOIN client_portfolios cp
+      ON cp.client_id=c.id
+     AND cp.active=TRUE
+    LEFT JOIN products p ON p.id=cp.product_id
+    WHERE c.active=TRUE
     GROUP BY c.id
     ORDER BY c.display_name
   `)).rows;

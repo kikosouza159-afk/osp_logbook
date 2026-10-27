@@ -6,7 +6,7 @@ import { saveChecklistAction } from "@/app/actions";
 import { CHECKLIST_ACTIONS, CHECKLIST_ITEMS } from "@/lib/checklist";
 import { requireUser } from "@/lib/auth";
 import { query } from "@/lib/db";
-import { formatDateTime } from "@/lib/format";
+import { clientOptionLabel, formatDateTime } from "@/lib/format";
 import { ChecklistSuccessToast } from "@/components/checklist-success-toast";
 
 function todaySaoPaulo() {
@@ -21,7 +21,7 @@ function todaySaoPaulo() {
 }
 
 type Analyst = { id:string; name:string; username:string };
-type Client = { id:string; display_name:string; primary_analyst_id:string|null; primary_analyst_name:string|null };
+type Client = { id:string; display_name:string; products:string|null; primary_analyst_id:string|null; primary_analyst_name:string|null };
 type ItemStatus = "EM_VALIDACAO"|"COM_ERRO"|"CONCLUIDO";
 type ItemRow = {
   item_key:string;
@@ -60,6 +60,13 @@ export default async function ChecklistPage({
       SELECT
         c.id,
         c.display_name,
+        (
+          SELECT STRING_AGG(DISTINCT p.code, ', ' ORDER BY p.code)
+          FROM client_portfolios cp
+          JOIN products p ON p.id=cp.product_id
+          WHERE cp.client_id=c.id
+            AND cp.active=TRUE
+        ) AS products,
         primary_link.analyst_id AS primary_analyst_id,
         primary_user.name AS primary_analyst_name
       FROM clients c
@@ -170,7 +177,7 @@ export default async function ChecklistPage({
       <div className="field">
         <label>Cliente</label>
         <select className="select" name="client" defaultValue={selectedClient?.id || ""}>
-          {clients.map(c => <option key={c.id} value={c.id}>{c.display_name}{c.primary_analyst_name ? ` • Principal: ${c.primary_analyst_name}` : ""}</option>)}
+          {clients.map(c => <option key={c.id} value={c.id}>{clientOptionLabel(c.display_name,c.products)}{c.primary_analyst_name ? ` • Principal: ${c.primary_analyst_name}` : ""}</option>)}
         </select>
       </div>
 

@@ -8,7 +8,7 @@ import { KpiCard } from "@/components/kpi-card";
 import { HeaderUserAvatar } from "@/components/header-user-avatar";
 import { getDashboardSummary, getIncidents } from "@/lib/queries";
 import { StatusBadge } from "@/components/status-badge";
-import { formatDateTime, formatTime } from "@/lib/format";
+import { clientOptionLabel, formatDateTime, formatTime } from "@/lib/format";
 import { requireUser } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { CHECKLIST_ITEMS } from "@/lib/checklist";
@@ -53,7 +53,7 @@ function historyDayLabel(date:string) {
 }
 
 type Analyst = { id:string; name:string };
-type Client = { id:string; display_name:string };
+type Client = { id:string; display_name:string; products:string|null };
 type Assignment = { analyst_id:string; client_id:string; is_primary:boolean };
 type ProgressRow = { analyst_id:string; client_id:string; completed:number; errors:number; validating:number; updated_at:string|null; updated_by_name:string|null };
 type HistoryProgressRow = {
@@ -98,10 +98,19 @@ export default async function DashboardPage({
         ORDER BY u.name
       `),
       query<Client>(`
-        SELECT id,display_name
-        FROM clients
-        WHERE active=TRUE
-        ORDER BY display_name
+        SELECT
+          c.id,
+          c.display_name,
+          (
+            SELECT STRING_AGG(DISTINCT p.code, ', ' ORDER BY p.code)
+            FROM client_portfolios cp
+            JOIN products p ON p.id=cp.product_id
+            WHERE cp.client_id=c.id
+              AND cp.active=TRUE
+          ) AS products
+        FROM clients c
+        WHERE c.active=TRUE
+        ORDER BY c.display_name
       `),
       query<Assignment>(`
         SELECT ac.analyst_id,ac.client_id,ac.is_primary
@@ -542,7 +551,7 @@ export default async function DashboardPage({
               <span>Cliente</span>
               <select className="select" name="hist_client" defaultValue={validHistoryClient}>
                 <option value="">Todos</option>
-                {historyClientOptions.map(client=><option key={client.id} value={client.id}>{client.display_name}</option>)}
+                {historyClientOptions.map(client=><option key={client.id} value={client.id}>{clientOptionLabel(client.display_name,client.products)}</option>)}
               </select>
             </label>
             <button className="btn btn-secondary" type="submit"><CalendarRange size={15}/> Aplicar</button>

@@ -15,3 +15,18 @@ export function formatTime(value: string | Date | null | undefined) {
     minute: "2-digit",
   }).format(new Date(value));
 }
+
+
+export function formatClientProducts(value: string | null | undefined) {
+  if (!value) return "Sem produto";
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((code) => code.toUpperCase() === "LOCATOR" ? "Locator" : code.toUpperCase())
+    .join(" + ");
+}
+
+export function clientOptionLabel(name: string, products: string | null | undefined) {
+  return `${name} · ${formatClientProducts(products)}`;
+}
