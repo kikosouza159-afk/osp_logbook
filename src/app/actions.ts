@@ -8,6 +8,7 @@ import { createSession, destroySession, getSessionUser, requireUser } from "@/li
 import { getPool, query } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { CHECKLIST_ITEMS } from "@/lib/checklist";
+import type { PoolClient } from "pg";
 
 const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
 
@@ -23,6 +24,164 @@ function text(form: FormData, key: string) {
 }
 
 function nullable(value: string) { return value || null; }
+
+function normalizePortfolioKey(value:string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase()
+    .replace(/&/g," e ")
+    .replace(/\badvogados?\b|\badv\b/g,"")
+    .replace(/[^a-z0-9]+/g,"");
+}
+
+type BulkClientInput = {
+  clientName:string;
+  analystLabel:string;
+  productLabel:string;
+  commercialLabel:string;
+};
+
+function parseBulkClientRows(raw:string): BulkClientInput[] {
+  const rows: BulkClientInput[] = [];
+  const lines = raw.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    if (/^\|?\s*-{3,}/.test(line)) continue;
+
+    let parts:string[];
+    if (line.includes("\t")) parts=line.split("\t");
+    else if (line.includes(";")) parts=line.split(";");
+    else if (line.includes("|")) parts=line.replace(/^\|/,"").replace(/\|$/,"").split("|");
+    else parts=line.split(/\s{2,}/);
+
+    parts=parts.map(value=>value.replace(/\u00a0/g," ").trim());
+    if (!parts.some(Boolean)) continue;
+
+    if (normalizePortfolioKey(parts[0] || "") === "cliente" &&
+        normalizePortfolioKey(parts[1] || "") === "acompanhamento") continue;
+
+    const [clientName="",analystLabel="",productLabel="",commercialLabel=""] = parts;
+    if (!clientName || !analystLabel || !productLabel) {
+      throw new Error(`Linha inválida no cadastro em massa: "${line}". Use Cliente | Acompanhamento | Produto | Comercial.`);
+    }
+    rows.push({clientName,analystLabel,productLabel,commercialLabel});
+  }
+
+  if (!rows.length) throw new Error("Nenhuma linha válida encontrada no cadastro em massa.");
+  if (rows.length > 300) throw new Error("Envie no máximo 300 linhas por carga.");
+  return rows;
+}
+
+async function loadClientPortfolioReferences(client:PoolClient) {
+  const [clients,analysts,products,commercials] = await Promise.all([
+    client.query<{id:string;name:string;display_name:string}>(
+      "SELECT id,name,display_name FROM clients"
+    ),
+    client.query<{id:string;name:string}>(
+      "SELECT id,name FROM users WHERE role='ANALYST' AND active=TRUE ORDER BY name"
+    ),
+    client.query<{id:string;code:string;name:string}>(
+      "SELECT id,code,name FROM products WHERE active=TRUE"
+    ),
+    client.query<{id:string;name:string}>(
+      "SELECT id,name FROM commercial_contacts WHERE active=TRUE ORDER BY name"
+    ),
+  ]);
+
+  return {
+    clientsByKey:new Map(clients.rows.map(row=>[normalizePortfolioKey(row.display_name),row])),
+    analysts:analysts.rows,
+    products:products.rows,
+    commercials:commercials.rows,
+  };
+}
+
+async function upsertClientPortfolio(
+  client:PoolClient,
+  refs:Awaited<ReturnType<typeof loadClientPortfolioReferences>>,
+  input:BulkClientInput
+) {
+  const clientKey=normalizePortfolioKey(input.clientName);
+  let targetClient=refs.clientsByKey.get(clientKey);
+  let created=false;
+
+  if (!targetClient) {
+    const inserted=await client.query<{id:string;name:string;display_name:string}>(
+      "INSERT INTO clients(name,display_name,active) VALUES($1,$1,TRUE) RETURNING id,name,display_name",
+      [input.clientName]
+    );
+    targetClient=inserted.rows[0];
+    refs.clientsByKey.set(clientKey,targetClient);
+    created=true;
+  } else if (targetClient.display_name !== input.clientName || targetClient.name !== input.clientName) {
+    const updated=await client.query<{id:string;name:string;display_name:string}>(
+      "UPDATE clients SET name=$2,display_name=$2,active=TRUE,updated_at=NOW() WHERE id=$1 RETURNING id,name,display_name",
+      [targetClient.id,input.clientName]
+    );
+    targetClient=updated.rows[0];
+    refs.clientsByKey.set(clientKey,targetClient);
+  }
+
+  const requestedAnalyst=normalizePortfolioKey(input.analystLabel);
+  const analystAlias:Record<string,string>={
+    duda:"eduarda",
+    michele:"michele",
+    pedro:"pedro",
+    sheila:"sheila",
+    elvis:"elvis",
+  };
+  const analystNeedle=analystAlias[requestedAnalyst] || requestedAnalyst;
+  const analyst=refs.analysts.find(row=>{
+    const key=normalizePortfolioKey(row.name);
+    return key===analystNeedle || key.startsWith(analystNeedle);
+  });
+  if (!analyst) throw new Error(`Acompanhamento "${input.analystLabel}" não encontrado entre os analistas ativos.`);
+
+  const productNeedle=normalizePortfolioKey(input.productLabel);
+  const product=refs.products.find(row=>
+    normalizePortfolioKey(row.code)===productNeedle || normalizePortfolioKey(row.name)===productNeedle
+  );
+  if (!product) throw new Error(`Produto "${input.productLabel}" não encontrado.`);
+
+  let commercialId:string|null=null;
+  if (input.commercialLabel) {
+    const commercialNeedle=normalizePortfolioKey(input.commercialLabel);
+    const commercial=refs.commercials.find(row=>normalizePortfolioKey(row.name)===commercialNeedle);
+    if (!commercial) throw new Error(`Comercial "${input.commercialLabel}" não encontrado na lista cadastrada.`);
+    commercialId=commercial.id;
+  }
+
+  await client.query(
+    `INSERT INTO client_products(client_id,product_id,analyst_id,commercial_contact_id,updated_at)
+     VALUES($1,$2,$3,$4,NOW())
+     ON CONFLICT(client_id,product_id)
+     DO UPDATE SET analyst_id=EXCLUDED.analyst_id,
+                   commercial_contact_id=EXCLUDED.commercial_contact_id,
+                   updated_at=NOW()`,
+    [targetClient.id,product.id,analyst.id,commercialId]
+  );
+
+  await client.query(
+    `INSERT INTO analyst_clients(analyst_id,client_id,is_primary)
+     VALUES(
+       $1,$2,
+       NOT EXISTS(SELECT 1 FROM analyst_clients WHERE client_id=$2)
+     )
+     ON CONFLICT(analyst_id,client_id) DO NOTHING`,
+    [analyst.id,targetClient.id]
+  );
+
+  return {
+    clientId:targetClient.id,
+    clientName:input.clientName,
+    product:product.code,
+    analystId:analyst.id,
+    analystName:analyst.name,
+    commercial:input.commercialLabel || null,
+    created,
+  };
+}
 
 export async function loginAction(formData: FormData) {
   const parsed = loginSchema.safeParse({ username: text(formData, "username"), password: text(formData, "password") });
@@ -53,30 +212,78 @@ export async function logoutAction() {
 
 export async function createClientAction(formData: FormData) {
   const user = await requireUser(["ADMIN", "ANALYST"]);
-  const schema = z.object({ name: z.string().min(2), displayName: z.string().min(2), products: z.array(z.string()).min(1) });
-  const parsed = schema.safeParse({ name: text(formData, "name"), displayName: text(formData, "display_name"), products: formData.getAll("products").map(String) });
-  if (!parsed.success) throw new Error("Preencha o cliente e selecione ao menos um produto.");
+  const input:BulkClientInput = {
+    clientName:text(formData,"client_name"),
+    analystLabel:text(formData,"analyst"),
+    productLabel:text(formData,"product"),
+    commercialLabel:text(formData,"commercial"),
+  };
+
+  if (!input.clientName || !input.analystLabel || !input.productLabel) {
+    throw new Error("Preencha Cliente, Acompanhamento e Produto.");
+  }
 
   const client = await getPool().connect();
   try {
     await client.query("BEGIN");
-    const inserted = await client.query<{ id: string }>(
-      "INSERT INTO clients(name, display_name) VALUES($1,$2) RETURNING id",
-      [parsed.data.name, parsed.data.displayName]
-    );
-    const id = inserted.rows[0].id;
+    const refs=await loadClientPortfolioReferences(client);
+    const result=await upsertClientPortfolio(client,refs,input);
     await client.query(
-      `INSERT INTO client_products(client_id, product_id)
-       SELECT $1::uuid, id FROM products WHERE code = ANY($2::text[]) ON CONFLICT DO NOTHING`,
-      [id, parsed.data.products]
+      "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'UPSERT_CLIENT_PORTFOLIO','client',$2,$3::jsonb)",
+      [user.id,result.clientId,JSON.stringify(result)]
     );
-    await client.query("INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'CREATE_CLIENT','client',$2,$3::jsonb)", [user.id, id, JSON.stringify({ displayName: parsed.data.displayName, products: parsed.data.products })]);
     await client.query("COMMIT");
-  } catch (e) {
+  } catch (error) {
     await client.query("ROLLBACK");
-    throw e;
-  } finally { client.release(); }
+    throw error;
+  } finally {
+    client.release();
+  }
+
   revalidatePath("/clients");
+  revalidatePath("/analysts");
+  revalidatePath("/checklist");
+  revalidatePath("/");
+  redirect("/clients?saved=1");
+}
+
+export async function bulkUpsertClientsAction(formData:FormData) {
+  const user=await requireUser(["ADMIN","ANALYST"]);
+  const rows=parseBulkClientRows(text(formData,"bulk_rows"));
+
+  const client=await getPool().connect();
+  const results:Array<Awaited<ReturnType<typeof upsertClientPortfolio>>>=[];
+  try {
+    await client.query("BEGIN");
+    const refs=await loadClientPortfolioReferences(client);
+    for (const row of rows) results.push(await upsertClientPortfolio(client,refs,row));
+
+    await client.query(
+      "INSERT INTO audit_logs(user_id,action,entity,metadata) VALUES($1,'BULK_UPSERT_CLIENT_PORTFOLIO','clients',$2::jsonb)",
+      [user.id,JSON.stringify({
+        rows:results.length,
+        createdClients:results.filter(item=>item.created).length,
+        portfolios:results.map(item=>({
+          client:item.clientName,
+          product:item.product,
+          analyst:item.analystName,
+          commercial:item.commercial,
+        })),
+      })]
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  revalidatePath("/clients");
+  revalidatePath("/analysts");
+  revalidatePath("/checklist");
+  revalidatePath("/");
+  redirect(`/clients?bulk=1&rows=${results.length}&created=${results.filter(item=>item.created).length}`);
 }
 
 export async function createAnalystAction(formData: FormData) {
