@@ -1,19 +1,25 @@
 import Link from "next/link";
-import { Plus, Search } from "lucide-react";
+import { PencilLine, Plus, Search } from "lucide-react";
 import { getAnalysts, getAreas, getClients, getIncidents, getProducts, getStatuses } from "@/lib/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { clientOptionLabel, formatDateTime } from "@/lib/format";
+import { requireUser } from "@/lib/auth";
+import { DeleteIncidentButton } from "@/components/delete-incident-button";
 
 export default async function IncidentsPage({ searchParams }: { searchParams: Promise<Record<string,string|string[]|undefined>> }) {
+  const user = await requireUser();
   const sp = await searchParams;
   const get = (k:string) => typeof sp[k] === "string" ? String(sp[k]) : "";
   const filters = { q:get("q"), status:get("status"), client:get("client"), analyst:get("analyst"), product:get("product"), area:get("area") };
+  const deleted = get("deleted");
+  const canEdit = user.role === "ADMIN" || user.role === "ANALYST";
   const [incidents, clients, analysts, products, statuses, areas] = await Promise.all([
     getIncidents(filters,100),getClients(),getAnalysts(),getProducts(),getStatuses(),getAreas()
   ]);
 
   return <>
     <div className="page-head"><div><h1>Incidentes</h1><p>Pesquisa, filtros e acompanhamento das ocorrências registradas.</p></div><Link className="btn btn-primary" href="/incidents/new"><Plus size={17}/> Novo incidente</Link></div>
+    {deleted && <div className="password-success-banner"><span>Incidente <strong>{deleted}</strong> excluído com sucesso.</span></div>}
     <form className="card filters" method="get">
       <div className="field filter-search"><label>Pesquisar</label><input className="input" name="q" defaultValue={filters.q} placeholder="Cliente, chamado, título ou descrição"/></div>
       <div className="field"><label>Status</label><select className="select" name="status" defaultValue={filters.status}><option value="">Todos</option>{statuses.map(s=><option key={s.code} value={s.code}>{s.label}</option>)}</select></div>
@@ -25,8 +31,26 @@ export default async function IncidentsPage({ searchParams }: { searchParams: Pr
     </form>
 
     <section className="card table-card" style={{marginTop:0}}>
-      <div className="table-wrap"><table><thead><tr><th>Data/Hora</th><th>Área</th><th>Cliente</th><th>Produto</th><th>Título</th><th>Chamado</th><th>Analista</th><th>Prioridade</th><th>Status</th></tr></thead><tbody>
-        {incidents.map(i=><tr key={i.id}><td>{formatDateTime(i.created_at)}</td><td>{i.area_code ? <span className="badge">{i.area_code}</span> : "—"}</td><td><strong>{i.client_name}</strong></td><td>{i.products||"—"}</td><td><Link prefetch={false} href={`/incidents/${i.id}`}>{i.title}</Link></td><td>{i.ticket_id||"—"}</td><td>{i.analyst_name||"Não atribuído"}</td><td><StatusBadge code={i.priority_code}/></td><td><StatusBadge code={i.status_code} label={i.status_label}/></td></tr>)}
+      <div className="table-wrap"><table><thead><tr><th>Data/Hora</th><th>Área</th><th>Cliente</th><th>Produto</th><th>Título</th><th>Chamado</th><th>Analista</th><th>Prioridade</th><th>Status</th>{canEdit && <th>Ações</th>}</tr></thead><tbody>
+        {incidents.map(i=><tr key={i.id}>
+          <td>{formatDateTime(i.created_at)}</td>
+          <td>{i.area_code ? <span className="badge">{i.area_code}</span> : "—"}</td>
+          <td><strong>{i.client_name}</strong></td>
+          <td>{i.products||"—"}</td>
+          <td><Link prefetch={false} href={`/incidents/${i.id}`}>{i.title}</Link></td>
+          <td>{i.ticket_id||"—"}</td>
+          <td>{i.analyst_name||"Não atribuído"}</td>
+          <td><StatusBadge code={i.priority_code}/></td>
+          <td><StatusBadge code={i.status_code} label={i.status_label}/></td>
+          {canEdit && <td className="client-actions-cell">
+            <div className="client-row-actions">
+              <Link className="btn client-edit-btn" href={`/incidents/${i.id}`} title={`Editar ${i.title}`}>
+                <PencilLine size={14}/> Editar
+              </Link>
+              {user.role === "ADMIN" && <DeleteIncidentButton incidentId={i.id} incidentTitle={i.title}/>}
+            </div>
+          </td>}
+        </tr>)}
       </tbody></table></div>
       {!incidents.length&&<div className="empty"><strong>Tudo tranquilo por aqui.</strong>Nenhuma ocorrência encontrada para os filtros selecionados.</div>}
     </section>
