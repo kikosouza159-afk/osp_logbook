@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { Archive, CheckCircle2, Clock3, Search } from "lucide-react";
 import { query } from "@/lib/db";
-import { clientOptionLabel, formatDateTime } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import { StatusBadge } from "@/components/status-badge";
 import { KpiCard } from "@/components/kpi-card";
-import { getAreas, getClients, getStatuses } from "@/lib/queries";
+import { getAreas, getClientPortfolios, getStatuses } from "@/lib/queries";
 
 type HistoryRow = {
   id:string;
@@ -28,7 +28,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
     q:get("q"),
     area:get("area"),
     status:get("status"),
-    client:get("client"),
+    portfolio:get("portfolio"),
     dateFrom:get("date_from"),
     dateTo:get("date_to")
   };
@@ -43,13 +43,24 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
   }
   if(filters.area) where.push(`i.area_code=${add(filters.area)}`);
   if(filters.status) where.push(`i.status_code=${add(filters.status)}`);
-  if(filters.client) where.push(`i.client_id=${add(filters.client)}::uuid`);
+  if(filters.portfolio) where.push(`EXISTS (
+    SELECT 1
+    FROM client_portfolios cpf
+    WHERE cpf.id=${add(filters.portfolio)}::uuid
+      AND cpf.client_id=i.client_id
+      AND EXISTS (
+        SELECT 1
+        FROM incident_products ipf
+        WHERE ipf.incident_id=i.id
+          AND ipf.product_id=cpf.product_id
+      )
+  )`);
   if(filters.dateFrom) where.push(`i.created_at >= (${add(filters.dateFrom)}::date AT TIME ZONE 'America/Sao_Paulo')`);
   if(filters.dateTo) where.push(`i.created_at < ((${add(filters.dateTo)}::date + INTERVAL '1 day') AT TIME ZONE 'America/Sao_Paulo')`);
 
   const filterSql=where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  const [historyRows, summary, auditRows, clients, statuses, areas]=await Promise.all([
+  const [historyRows, summary, auditRows, portfolios, statuses, areas]=await Promise.all([
     query<HistoryRow>(`
       SELECT
         i.id,
@@ -92,7 +103,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
       ORDER BY a.created_at DESC
       LIMIT 100
     `),
-    getClients(),
+    getClientPortfolios(),
     getStatuses(),
     getAreas()
   ]);
@@ -136,9 +147,9 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
       </div>
       <div className="field">
         <label>Cliente</label>
-        <select className="select" name="client" defaultValue={filters.client}>
+        <select className="select" name="portfolio" defaultValue={filters.portfolio}>
           <option value="">Todos</option>
-          {clients.map(c=><option key={c.id} value={c.id}>{clientOptionLabel(c.display_name,c.products)}</option>)}
+          {portfolios.map(portfolio=><option key={portfolio.id} value={portfolio.id}>{portfolio.client_name} · {portfolio.product_code}</option>)}
         </select>
       </div>
       <div className="field">
