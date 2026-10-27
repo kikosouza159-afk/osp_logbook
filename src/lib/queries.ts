@@ -177,7 +177,7 @@ export async function getAnalysts() {
   `)).rows;
 }
 
-export async function getIncidents(filters: { q?: string; status?: string; client?: string; portfolio?: string; analyst?: string; product?: string; area?: string } = {}, limit = 100) {
+export async function getIncidents(filters: { q?: string; status?: string; client?: string; portfolio?: string; analyst?: string; product?: string; area?: string; date?: string; openOnly?: boolean } = {}, limit = 100) {
   const where: string[] = [];
   const params: unknown[] = [];
   const add = (value: unknown) => { params.push(value); return `$${params.length}`; };
@@ -202,6 +202,8 @@ export async function getIncidents(filters: { q?: string; status?: string; clien
   if (filters.analyst) where.push(`i.assigned_user_id = ${add(filters.analyst)}::uuid`);
   if (filters.product) where.push(`EXISTS (SELECT 1 FROM incident_products ip2 JOIN products p2 ON p2.id=ip2.product_id WHERE ip2.incident_id=i.id AND p2.code=${add(filters.product)})`);
   if (filters.area) where.push(`i.area_code = ${add(filters.area)}`);
+  if (filters.date) where.push(`(i.created_at AT TIME ZONE 'America/Sao_Paulo')::date = ${add(filters.date)}::date`);
+  if (filters.openOnly) where.push(`s.is_closed=FALSE`);
   params.push(limit);
 
   return (await query<{
