@@ -3356,3 +3356,50 @@ html[data-theme="dark"] .client-delete-btn {
 html[data-theme="dark"] .client-delete-btn:hover {
   background:rgba(255,115,115,.16);
 }
+
+
+/* Client editing */
+.client-single-card.is-editing {
+  border-color:rgba(52,95,153,.35);
+  box-shadow:0 10px 32px rgba(52,95,153,.10);
+}
+.client-editor-actions {
+  margin-top:18px;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  flex-wrap:wrap;
+}
+.client-row-actions {
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
+.client-edit-btn {
+  padding:7px 10px;
+  font-size:11px;
+  border:1px solid rgba(52,95,153,.22);
+  background:#EEF3FA;
+  color:#345F99;
+  box-shadow:none;
+}
+.client-edit-btn:hover {
+  background:#E3ECF7;
+  border-color:rgba(52,95,153,.36);
+}
+html[data-theme="dark"] .client-single-card.is-editing {
+  border-color:rgba(120,169,255,.34);
+  box-shadow:0 12px 34px rgba(0,0,0,.28),0 0 0 1px rgba(120,169,255,.08);
+}
+html[data-theme="dark"] .client-edit-btn {
+  background:#1C3047;
+  border-color:rgba(120,169,255,.22);
+  color:#9AC9FF;
+}
+html[data-theme="dark"] .client-edit-btn:hover {
+  background:#233B56;
+}
+@media(max-width:650px){
+  .client-row-actions{align-items:stretch;flex-direction:column}
+  .client-row-actions .btn{width:100%}
+}

@@ -1,7 +1,8 @@
+import Link from "next/link";
 import {
-  BriefcaseBusiness, Building2, ClipboardPaste, Layers3, Plus, Upload, UsersRound
+  BriefcaseBusiness, Building2, ClipboardPaste, Layers3, PencilLine, Plus, Save, Upload, UsersRound, X
 } from "lucide-react";
-import { bulkUpsertClientsAction, createClientAction } from "@/app/actions";
+import { bulkUpsertClientsAction, createClientAction, updateClientPortfolioAction } from "@/app/actions";
 import { getAnalysts, getClientPortfolios, getCommercials, getProducts } from "@/lib/queries";
 import { requireUser } from "@/lib/auth";
 import { DeleteClientButton } from "@/components/delete-client-button";
@@ -37,6 +38,8 @@ export default async function ClientsPage({
   const saved = sp.saved === "1";
   const bulkSaved = typeof sp.bulk_saved === "string" ? Number(sp.bulk_saved) : 0;
   const deleted = typeof sp.deleted === "string" ? sp.deleted : "";
+  const updated = typeof sp.updated === "string" ? sp.updated : "";
+  const editId = typeof sp.edit === "string" ? sp.edit : "";
 
   const [portfolios,products,commercials,analysts]=await Promise.all([
     getClientPortfolios(),
@@ -46,6 +49,9 @@ export default async function ClientsPage({
   ]);
 
   const activeAnalysts = analysts.filter(a=>a.active && a.role==="ANALYST");
+  const editingPortfolio = user.role === "ADMIN" && editId
+    ? portfolios.find(p=>p.id===editId)
+    : undefined;
   const locator = portfolios.filter(p=>p.product_code==="LOCATOR" && p.active).length;
   const ada = portfolios.filter(p=>p.product_code==="ADA" && p.active).length;
   const withoutCommercial = portfolios.filter(p=>p.active && !p.commercial_name).length;
@@ -66,6 +72,9 @@ export default async function ClientsPage({
     </div>}
     {deleted && <div className="password-success-banner">
       <span>Cliente <strong>{deleted}</strong> excluído da operação. O histórico anterior foi preservado.</span>
+    </div>}
+    {updated && <div className="password-success-banner">
+      <span>Cliente <strong>{updated}</strong> atualizado com sucesso.</span>
     </div>}
 
     <div className="client-kpi-grid">
@@ -88,25 +97,32 @@ export default async function ClientsPage({
     </div>
 
     <div className="client-admin-grid">
-      <section className="card form-card client-single-card">
+      <section id="client-editor" className={`card form-card client-single-card${editingPortfolio ? " is-editing" : ""}`}>
         <div className="panel-title">
           <div>
-            <h2>Novo cliente / carteira</h2>
-            <p>Use este formulário para inclusão ou atualização pontual.</p>
+            <h2>{editingPortfolio ? "Editar cliente / carteira" : "Novo cliente / carteira"}</h2>
+            <p>{editingPortfolio ? "Altere os dados da carteira selecionada e salve." : "Use este formulário para inclusão ou atualização pontual."}</p>
           </div>
-          <Plus size={18}/>
+          {editingPortfolio ? <PencilLine size={18}/> : <Plus size={18}/>}
         </div>
 
-        <form action={createClientAction}>
+        <form action={editingPortfolio ? updateClientPortfolioAction : createClientAction}>
+          {editingPortfolio && <input type="hidden" name="portfolio_id" value={editingPortfolio.id}/>}
           <div className="field">
             <label>Cliente *</label>
-            <input className="input" name="client_name" placeholder="Ex.: NovaQuest" required/>
+            <input
+              className="input"
+              name="client_name"
+              placeholder="Ex.: NovaQuest"
+              defaultValue={editingPortfolio?.client_name || ""}
+              required
+            />
           </div>
 
           <div className="form-grid client-form-grid">
             <div className="field">
               <label>Acompanhamento *</label>
-              <select className="select" name="analyst_name" required>
+              <select className="select" name="analyst_name" defaultValue={editingPortfolio?.analyst_name || ""} required>
                 <option value="">Selecione</option>
                 {activeAnalysts.map(a=><option key={a.id} value={a.name}>
                   {analystLabel(a.username,a.name)}
@@ -116,7 +132,7 @@ export default async function ClientsPage({
 
             <div className="field">
               <label>Produto *</label>
-              <select className="select" name="product" required>
+              <select className="select" name="product" defaultValue={editingPortfolio?.product_code || ""} required>
                 <option value="">Selecione</option>
                 {products.map(p=><option key={p.id} value={p.code}>{p.name}</option>)}
               </select>
@@ -125,15 +141,20 @@ export default async function ClientsPage({
 
           <div className="field" style={{marginTop:12}}>
             <label>Comercial</label>
-            <select className="select" name="commercial">
+            <select className="select" name="commercial" defaultValue={editingPortfolio?.commercial_name || ""}>
               <option value="">Não definido</option>
               {commercials.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
             </select>
           </div>
 
-          <button className="btn btn-primary" style={{marginTop:18}}>
-            <Plus size={16}/> Salvar cliente
-          </button>
+          <div className="client-editor-actions">
+            <button className="btn btn-primary" type="submit">
+              {editingPortfolio ? <><Save size={16}/> Salvar alterações</> : <><Plus size={16}/> Salvar cliente</>}
+            </button>
+            {editingPortfolio && <Link className="btn btn-secondary" href="/clients">
+              <X size={16}/> Cancelar
+            </Link>}
+          </div>
         </form>
       </section>
 
@@ -207,7 +228,17 @@ export default async function ClientsPage({
               <td>{p.commercial_name || <span className="client-empty-value">Não definido</span>}</td>
               <td>{p.active ? <span className="badge RESOLVIDO">Ativo</span> : <span className="badge">Inativo</span>}</td>
               {user.role === "ADMIN" && <td className="client-actions-cell">
-                <DeleteClientButton clientId={p.client_id} clientName={p.client_name}/>
+                <div className="client-row-actions">
+                  <Link
+                    className="btn client-edit-btn"
+                    href={`/clients?edit=${encodeURIComponent(p.id)}#client-editor`}
+                    title={`Editar ${p.client_name}`}
+                  >
+                    <PencilLine size={14}/>
+                    Editar
+                  </Link>
+                  <DeleteClientButton clientId={p.client_id} clientName={p.client_name}/>
+                </div>
               </td>}
             </tr>)}
           </tbody>

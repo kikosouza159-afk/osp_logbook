@@ -226,6 +226,200 @@ export async function createClientAction(formData: FormData) {
   redirect("/clients?saved=1");
 }
 
+export async function updateClientPortfolioAction(formData: FormData) {
+  const actor = await requireUser(["ADMIN"]);
+  const data = {
+    portfolioId:text(formData,"portfolio_id"),
+    clientName:text(formData,"client_name"),
+    analystName:text(formData,"analyst_name"),
+    productCode:text(formData,"product"),
+    commercialName:text(formData,"commercial"),
+  };
+
+  const parsed = z.object({
+    portfolioId:z.string().uuid(),
+    clientName:z.string().min(2),
+    analystName:z.string().min(1),
+    productCode:z.string().min(1),
+    commercialName:z.string().optional(),
+  }).safeParse(data);
+  if (!parsed.success) throw new Error("Dados inválidos para edição do cliente.");
+
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+
+    const current = (await client.query<{
+      id:string;
+      client_id:string;
+      product_id:string;
+      analyst_id:string|null;
+      commercial_id:string|null;
+      client_name:string;
+      product_code:string;
+    }>(
+      `SELECT
+         cp.id,
+         cp.client_id,
+         cp.product_id,
+         cp.analyst_id,
+         cp.commercial_id,
+         c.display_name AS client_name,
+         p.code AS product_code
+       FROM client_portfolios cp
+       JOIN clients c ON c.id=cp.client_id
+       JOIN products p ON p.id=cp.product_id
+       WHERE cp.id=$1
+       FOR UPDATE OF cp,c`,
+      [parsed.data.portfolioId]
+    )).rows[0];
+
+    if (!current) throw new Error("Carteira não encontrada.");
+
+    const clientName = parsed.data.clientName.replace(/\u00a0/g," ").replace(/\s+/g," ").trim();
+    const productCode = normalizePortfolioValue(parsed.data.productCode) === "ada" ? "ADA"
+      : normalizePortfolioValue(parsed.data.productCode) === "locator" ? "LOCATOR"
+      : "";
+    if (!productCode) throw new Error("Produto inválido. Use Locator ou ADA.");
+
+    const analystId = await resolvePortfolioAnalyst(client,parsed.data.analystName);
+    if (!analystId) throw new Error(`Acompanhamento "${parsed.data.analystName}" não encontrado.`);
+
+    const product = (await client.query<{id:string}>(
+      "SELECT id FROM products WHERE code=$1 AND active=TRUE LIMIT 1",
+      [productCode]
+    )).rows[0];
+    if (!product) throw new Error(`Produto ${productCode} não está ativo no cadastro.`);
+
+    let commercialId:string|null = null;
+    if (parsed.data.commercialName) {
+      const commercial = (await client.query<{id:string}>(
+        "SELECT id FROM commercials WHERE LOWER(name)=LOWER($1) AND active=TRUE LIMIT 1",
+        [parsed.data.commercialName]
+      )).rows[0];
+      if (!commercial) throw new Error(`Comercial "${parsed.data.commercialName}" não encontrado.`);
+      commercialId = commercial.id;
+    }
+
+    const duplicateClient = (await client.query<{id:string}>(
+      "SELECT id FROM clients WHERE id<>$1 AND LOWER(display_name)=LOWER($2) LIMIT 1",
+      [current.client_id,clientName]
+    )).rows[0];
+    if (duplicateClient) {
+      throw new Error(`Já existe outro cliente cadastrado como "${clientName}".`);
+    }
+
+    const duplicatePortfolio = (await client.query<{id:string}>(
+      "SELECT id FROM client_portfolios WHERE client_id=$1 AND product_id=$2 AND id<>$3 LIMIT 1",
+      [current.client_id,product.id,current.id]
+    )).rows[0];
+    if (duplicatePortfolio) {
+      throw new Error(`O cliente ${clientName} já possui uma carteira ${productCode}.`);
+    }
+
+    await client.query(
+      "UPDATE clients SET name=$2,display_name=$2,active=TRUE,updated_at=NOW() WHERE id=$1",
+      [current.client_id,clientName]
+    );
+
+    await client.query(
+      `UPDATE client_portfolios
+       SET product_id=$2,analyst_id=$3,commercial_id=$4,active=TRUE,updated_at=NOW()
+       WHERE id=$1`,
+      [current.id,product.id,analystId,commercialId]
+    );
+
+    await client.query(
+      `INSERT INTO client_products(client_id,product_id)
+       VALUES($1,$2)
+       ON CONFLICT(client_id,product_id) DO NOTHING`,
+      [current.client_id,product.id]
+    );
+
+    if (current.product_id !== product.id) {
+      await client.query(
+        `DELETE FROM client_products cp
+         WHERE cp.client_id=$1
+           AND cp.product_id=$2
+           AND NOT EXISTS (
+             SELECT 1
+             FROM client_portfolios p
+             WHERE p.client_id=$1
+               AND p.product_id=$2
+               AND p.active=TRUE
+           )`,
+        [current.client_id,current.product_id]
+      );
+    }
+
+    if (current.analyst_id && current.analyst_id !== analystId) {
+      await client.query(
+        `DELETE FROM analyst_clients ac
+         WHERE ac.client_id=$1
+           AND ac.analyst_id=$2
+           AND NOT EXISTS (
+             SELECT 1
+             FROM client_portfolios p
+             WHERE p.client_id=$1
+               AND p.analyst_id=$2
+               AND p.active=TRUE
+           )`,
+        [current.client_id,current.analyst_id]
+      );
+    }
+
+    await client.query(
+      `INSERT INTO analyst_clients(analyst_id,client_id,is_primary)
+       VALUES($1,$2,FALSE)
+       ON CONFLICT(analyst_id,client_id) DO NOTHING`,
+      [analystId,current.client_id]
+    );
+
+    const hasPrimary = (await client.query<{exists:boolean}>(
+      "SELECT EXISTS(SELECT 1 FROM analyst_clients WHERE client_id=$1 AND is_primary=TRUE) AS exists",
+      [current.client_id]
+    )).rows[0]?.exists ?? false;
+    if (!hasPrimary) {
+      await client.query(
+        "UPDATE analyst_clients SET is_primary=TRUE WHERE analyst_id=$1 AND client_id=$2",
+        [analystId,current.client_id]
+      );
+    }
+
+    await client.query(
+      "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'UPDATE_CLIENT_PORTFOLIO','client_portfolio',$2,$3::jsonb)",
+      [actor.id,current.id,JSON.stringify({
+        before:{
+          clientName:current.client_name,
+          productCode:current.product_code,
+          analystId:current.analyst_id,
+          commercialId:current.commercial_id,
+        },
+        after:{
+          clientName,
+          productCode,
+          analystId,
+          commercialId,
+        },
+      })]
+    );
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  revalidatePath("/clients");
+  revalidatePath("/analysts");
+  revalidatePath("/checklist");
+  revalidatePath("/incidents/new");
+  revalidatePath("/");
+  redirect(`/clients?updated=${encodeURIComponent(parsed.data.clientName)}`);
+}
+
 export async function deleteClientAction(formData: FormData) {
   const actor = await requireUser(["ADMIN"]);
   const clientId = text(formData, "client_id");
