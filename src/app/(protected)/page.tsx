@@ -2,7 +2,7 @@ import Link from "next/link";
 import {
   BookOpenCheck, Siren, Wrench, Clock3, CheckCircle2, Building2, Radar, Bot, Plus, RefreshCw,
   Target, RadioTower, FlaskConical, Code2, MessagesSquare, Layers3, ClipboardCheck,
-  UsersRound, ChartNoAxesColumnIncreasing, CalendarDays, ArrowUpRight
+  UsersRound, ChartNoAxesColumnIncreasing, CalendarDays, CalendarRange, ArrowUpRight
 } from "lucide-react";
 import { KpiCard } from "@/components/kpi-card";
 import { HeaderUserAvatar } from "@/components/header-user-avatar";
@@ -32,10 +32,40 @@ function todaySaoPaulo() {
   return `${map.year}-${map.month}-${map.day}`;
 }
 
+function shiftDate(date:string, delta:number) {
+  const [year,month,day] = date.split("-").map(Number);
+  const value = new Date(Date.UTC(year,month-1,day));
+  value.setUTCDate(value.getUTCDate()+delta);
+  return value.toISOString().slice(0,10);
+}
+
+function historyDayLabel(date:string) {
+  const [year,month,day] = date.split("-").map(Number);
+  const value = new Date(Date.UTC(year,month-1,day));
+  const weekday = new Intl.DateTimeFormat("pt-BR", {
+    weekday:"short",
+    timeZone:"UTC",
+  }).format(value).replace(".","");
+  return {
+    weekday:weekday.charAt(0).toUpperCase()+weekday.slice(1),
+    day:`${String(day).padStart(2,"0")}/${String(month).padStart(2,"0")}`,
+  };
+}
+
 type Analyst = { id:string; name:string };
 type Client = { id:string; display_name:string };
 type Assignment = { analyst_id:string; client_id:string };
 type ProgressRow = { analyst_id:string; client_id:string; completed:number; errors:number; validating:number; updated_at:string|null };
+type HistoryProgressRow = {
+  checklist_date:string;
+  analyst_id:string;
+  client_id:string;
+  completed:number;
+  errors:number;
+  validating:number;
+  recorded:number;
+  updated_at:string|null;
+};
 
 export default async function DashboardPage({
   searchParams,
@@ -95,6 +125,28 @@ export default async function DashboardPage({
         GROUP BY dc.analyst_id,dc.client_id
       `, user.role === "ADMIN" ? [checklistDate] : [checklistDate,user.id]),
     ]);
+
+    const historyStart = shiftDate(checklistDate,-(historyPeriod-1));
+    const historyRes = await query<HistoryProgressRow>(`
+      SELECT
+        dc.checklist_date::text,
+        dc.analyst_id,
+        dc.client_id,
+        COUNT(dci.id) FILTER (WHERE dci.status='CONCLUIDO')::int completed,
+        COUNT(dci.id) FILTER (WHERE dci.status='COM_ERRO')::int errors,
+        COUNT(dci.id) FILTER (WHERE dci.status='EM_VALIDACAO')::int validating,
+        COUNT(dci.id)::int recorded,
+        MAX(dc.updated_at)::text updated_at
+      FROM daily_checklists dc
+      LEFT JOIN daily_checklist_items dci ON dci.checklist_id=dc.id
+      WHERE dc.checklist_date BETWEEN $1::date AND $2::date
+        ${user.role === "ADMIN" ? "" : "AND dc.analyst_id=$3"}
+      GROUP BY dc.checklist_date,dc.analyst_id,dc.client_id
+      ORDER BY dc.checklist_date,dc.analyst_id,dc.client_id
+    `, user.role === "ADMIN"
+      ? [historyStart,checklistDate]
+      : [historyStart,checklistDate,user.id]
+    );
 
     const analysts = analystsRes.rows;
     const clients = clientsRes.rows;
@@ -174,6 +226,78 @@ export default async function DashboardPage({
     const started = assignedPairs.filter(p => p.pct > 0).length;
     const finished = assignedPairs.filter(p => p.pct === 100).length;
     const notStarted = Math.max(assignments.length - started,0);
+    const historyDays = Array.from({length:historyPeriod},(_,index)=>shiftDate(historyStart,index));
+    const validHistoryAnalyst = analysts.some(a=>a.id===historyAnalystFilter) ? historyAnalystFilter : "";
+    const historyClientOptions = validHistoryAnalyst
+      ? clients.filter(client=>assignmentSet.has(`${validHistoryAnalyst}:${client.id}`))
+      : clients.filter(client=>assignments.some(pair=>pair.client_id===client.id));
+    const validHistoryClient = historyClientOptions.some(client=>client.id===historyClientFilter) ? historyClientFilter : "";
+
+    const historyPairs = assignments
+      .filter(pair=>!validHistoryAnalyst || pair.analyst_id===validHistoryAnalyst)
+      .filter(pair=>!validHistoryClient || pair.client_id===validHistoryClient)
+      .map(pair=>({
+        ...pair,
+        analyst:analysts.find(a=>a.id===pair.analyst_id)!,
+        client:clients.find(client=>client.id===pair.client_id)!,
+      }))
+      .filter(pair=>pair.analyst && pair.client)
+      .sort((a,b)=>a.analyst.name.localeCompare(b.analyst.name,"pt-BR") || a.client.display_name.localeCompare(b.client.display_name,"pt-BR"));
+
+    const historyRows = historyRes.rows
+      .filter(row=>!validHistoryAnalyst || row.analyst_id===validHistoryAnalyst)
+      .filter(row=>!validHistoryClient || row.client_id===validHistoryClient);
+
+    const historyMap = new Map(historyRows.map(row=>[
+      `${row.checklist_date}:${row.analyst_id}:${row.client_id}`,
+      {
+        completed:Number(row.completed || 0),
+        errors:Number(row.errors || 0),
+        validating:Number(row.validating || 0),
+        recorded:Number(row.recorded || 0),
+        updated_at:row.updated_at,
+      }
+    ]));
+
+    const historyCell = (date:string,analystId:string,clientId:string) => {
+      const value = historyMap.get(`${date}:${analystId}:${clientId}`);
+      const completed = value?.completed || 0;
+      const errors = value?.errors || 0;
+      const validating = value?.validating || 0;
+      const recorded = value?.recorded || 0;
+      const pct = totalItems ? Math.round((completed/totalItems)*100) : 0;
+      const errorPct = totalItems ? Math.round((errors/totalItems)*100) : 0;
+      const state = recorded === 0
+        ? "empty"
+        : errors > 0
+          ? "error"
+          : pct === 100
+            ? "done"
+            : "validating";
+      return {completed,errors,validating,recorded,pct,errorPct,state};
+    };
+
+    const historyExpectedPerDay = historyPairs.length * totalItems;
+    const historyDaily = historyDays.map(date=>{
+      const cells = historyPairs.map(pair=>historyCell(date,pair.analyst_id,pair.client_id));
+      const completed = cells.reduce((sum,item)=>sum+item.completed,0);
+      const errors = cells.reduce((sum,item)=>sum+item.errors,0);
+      const startedPairs = cells.filter(item=>item.recorded>0).length;
+      return {
+        date,
+        pct:historyExpectedPerDay ? Math.round((completed/historyExpectedPerDay)*100) : 0,
+        errors,
+        startedPairs,
+      };
+    });
+
+    const historyDaysFilled = new Set(historyRows.map(row=>row.checklist_date)).size;
+    const historyCompletedTotal = historyRows.reduce((sum,row)=>sum+Number(row.completed || 0),0);
+    const historyErrorTotal = historyRows.reduce((sum,row)=>sum+Number(row.errors || 0),0);
+    const historyAveragePct = historyRows.length
+      ? Math.round((historyCompletedTotal/(historyRows.length*totalItems))*100)
+      : 0;
+    const historyClientsMonitored = new Set(historyRows.map(row=>row.client_id)).size;
 
     return <>
       <div className="page-head">
@@ -373,6 +497,142 @@ export default async function DashboardPage({
             const p = getPairProgress(pair.analyst_id,pair.client_id);
             return p && p.pct < 100;
           }) && <div className="empty"><strong>Nenhuma pendência</strong>Todos os checklists vinculados estão concluídos para esta data.</div>}
+        </div>
+      </section>
+
+      <section className="card checklist-history-panel">
+        <div className="checklist-history-head">
+          <div>
+            <span className="checklist-hero-kicker">Histórico operacional</span>
+            <h2>Evolução diária dos checklists</h2>
+            <p>Timeline estilo Gantt para acompanhar, dia a dia, a execução de cada checklist por analista e cliente.</p>
+          </div>
+
+          <form className="checklist-history-filters" method="get">
+            <input type="hidden" name="view" value="checklist"/>
+            <input type="hidden" name="date" value={checklistDate}/>
+            <div className="checklist-history-periods">
+              {[7,15,30].map(period=><button
+                key={period}
+                type="submit"
+                name="period"
+                value={period}
+                className={`history-period-button ${historyPeriod===period ? "active" : ""}`}
+              >{period} dias</button>)}
+            </div>
+            {user.role === "ADMIN" && <label>
+              <span>Analista</span>
+              <select className="select" name="hist_analyst" defaultValue={validHistoryAnalyst}>
+                <option value="">Todos</option>
+                {analysts.map(analyst=><option key={analyst.id} value={analyst.id}>{analyst.name}</option>)}
+              </select>
+            </label>}
+            <label>
+              <span>Cliente</span>
+              <select className="select" name="hist_client" defaultValue={validHistoryClient}>
+                <option value="">Todos</option>
+                {historyClientOptions.map(client=><option key={client.id} value={client.id}>{client.display_name}</option>)}
+              </select>
+            </label>
+            <button className="btn btn-secondary" type="submit"><CalendarRange size={15}/> Aplicar</button>
+          </form>
+        </div>
+
+        <div className="checklist-history-kpis">
+          <div className="history-kpi">
+            <span>Dias preenchidos</span>
+            <strong>{historyDaysFilled}</strong>
+            <small>de {historyPeriod} dias no período</small>
+          </div>
+          <div className="history-kpi">
+            <span>Média concluída</span>
+            <strong>{historyAveragePct}%</strong>
+            <small>dos checklists registrados</small>
+          </div>
+          <div className="history-kpi error">
+            <span>Itens com erro</span>
+            <strong>{historyErrorTotal}</strong>
+            <small>ocorrências no período</small>
+          </div>
+          <div className="history-kpi">
+            <span>Clientes monitorados</span>
+            <strong>{historyClientsMonitored}</strong>
+            <small>com registro no período</small>
+          </div>
+        </div>
+
+        <div className="history-daily-pulse">
+          <div className="history-daily-pulse-title">
+            <strong>Pulso diário</strong>
+            <span>Percentual consolidado considerando todas as carteiras exibidas.</span>
+          </div>
+          <div className="history-daily-pulse-track">
+            {historyDaily.map(day=>{
+              const label=historyDayLabel(day.date);
+              const state=day.errors>0 ? "error" : day.pct===100 ? "done" : day.startedPairs>0 ? "progress" : "empty";
+              return <div className={`history-day-pulse ${state}`} key={day.date} title={`${day.date}: ${day.pct}% concluído · ${day.errors} erro(s)`}>
+                <span>{label.weekday}</span>
+                <strong>{label.day}</strong>
+                <div className="history-day-pulse-bar"><i style={{height:`${Math.max(day.pct,day.startedPairs ? 8 : 2)}%`}}/></div>
+                <b>{day.pct}%</b>
+                {day.errors>0 && <small>{day.errors} erro(s)</small>}
+              </div>;
+            })}
+          </div>
+        </div>
+
+        <div className="checklist-gantt-legend">
+          <span><i className="done"/>Concluído</span>
+          <span><i className="validating"/>Em validação</span>
+          <span><i className="error"/>Com erro</span>
+          <span><i className="empty"/>Sem preenchimento</span>
+          <small>Clique em qualquer dia para abrir o checklist correspondente.</small>
+        </div>
+
+        <div className="checklist-gantt-wrap">
+          <div className="checklist-gantt-grid" style={{gridTemplateColumns:`260px repeat(${historyDays.length},78px)`}}>
+            <div className="gantt-corner">
+              <strong>Analista / Cliente</strong>
+              <span>{historyStart.split("-").reverse().join("/")} → {checklistDate.split("-").reverse().join("/")}</span>
+            </div>
+            {historyDays.map(date=>{
+              const label=historyDayLabel(date);
+              return <div className={`gantt-day-head ${date===checklistDate ? "today" : ""}`} key={date}>
+                <span>{label.weekday}</span>
+                <strong>{label.day}</strong>
+              </div>;
+            })}
+
+            {historyPairs.map(pair=><div className="gantt-row-fragment" key={`${pair.analyst_id}:${pair.client_id}`} style={{display:"contents"}}>
+              <div className="gantt-row-label">
+                <HeaderUserAvatar userId={pair.analyst.id} name={pair.analyst.name} variant="analyst-card"/>
+                <div>
+                  <strong>{pair.client.display_name}</strong>
+                  <span>{pair.analyst.name}</span>
+                </div>
+              </div>
+              {historyDays.map(date=>{
+                const cell=historyCell(date,pair.analyst_id,pair.client_id);
+                const label=historyDayLabel(date);
+                return <Link
+                  key={date}
+                  className={`gantt-cell ${cell.state}`}
+                  href={`/checklist?date=${date}&analyst=${pair.analyst_id}&client=${pair.client_id}`}
+                  title={`${pair.analyst.name} · ${pair.client.display_name} · ${label.day}\nConcluído: ${cell.pct}% (${cell.completed}/${totalItems})\nEm validação: ${cell.validating}\nCom erro: ${cell.errors}`}
+                >
+                  <span className="gantt-cell-percent">{cell.pct}%</span>
+                  <span className="gantt-cell-bar"><i style={{width:`${cell.pct}%`}}/></span>
+                  {cell.errors>0 && <span className="gantt-cell-error">{cell.errors}</span>}
+                </Link>;
+              })}
+            </div>)}
+          </div>
+
+          {!historyPairs.length && <div className="history-empty-state">
+            <CalendarRange size={28}/>
+            <strong>Nenhuma combinação encontrada</strong>
+            <span>Ajuste os filtros de analista/cliente ou vincule clientes aos analistas.</span>
+          </div>}
         </div>
       </section>
     </>;
