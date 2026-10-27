@@ -122,6 +122,8 @@ export async function getClientPortfolios() {
     JOIN products p ON p.id=cp.product_id
     LEFT JOIN users u ON u.id=cp.analyst_id
     LEFT JOIN commercials cm ON cm.id=cp.commercial_id
+    WHERE c.active=TRUE
+      AND cp.active=TRUE
     ORDER BY c.display_name,p.name
   `)).rows;
 }

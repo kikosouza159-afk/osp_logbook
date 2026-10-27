@@ -3330,3 +3330,29 @@ html[data-theme="dark"] .client-empty-value { color:#7E8496; }
   .client-kpi-grid{grid-template-columns:1fr}
   .client-template-head{align-items:flex-start;flex-direction:column}
 }
+
+
+/* Client administration */
+.client-actions-cell { white-space:nowrap; }
+.client-delete-form { margin:0; }
+.client-delete-btn {
+  padding:7px 10px;
+  font-size:11px;
+  border:1px solid rgba(196,59,59,.2);
+  background:#FFF3F3;
+  color:var(--danger);
+  cursor:pointer;
+  box-shadow:none;
+}
+.client-delete-btn:hover {
+  background:#FFE9E9;
+  border-color:rgba(196,59,59,.35);
+}
+html[data-theme="dark"] .client-delete-btn {
+  background:rgba(255,115,115,.10);
+  border-color:rgba(255,115,115,.22);
+  color:#FF9A9A;
+}
+html[data-theme="dark"] .client-delete-btn:hover {
+  background:rgba(255,115,115,.16);
+}

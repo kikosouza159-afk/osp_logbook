@@ -3,6 +3,8 @@ import {
 } from "lucide-react";
 import { bulkUpsertClientsAction, createClientAction } from "@/app/actions";
 import { getAnalysts, getClientPortfolios, getCommercials, getProducts } from "@/lib/queries";
+import { requireUser } from "@/lib/auth";
+import { DeleteClientButton } from "@/components/delete-client-button";
 
 function analystLabel(username:string,name:string) {
   const aliases:Record<string,string> = {
@@ -30,9 +32,11 @@ export default async function ClientsPage({
 }: {
   searchParams: Promise<Record<string,string|string[]|undefined>>;
 }){
+  const user = await requireUser();
   const sp = await searchParams;
   const saved = sp.saved === "1";
   const bulkSaved = typeof sp.bulk_saved === "string" ? Number(sp.bulk_saved) : 0;
+  const deleted = typeof sp.deleted === "string" ? sp.deleted : "";
 
   const [portfolios,products,commercials,analysts]=await Promise.all([
     getClientPortfolios(),
@@ -59,6 +63,9 @@ export default async function ClientsPage({
     </div>}
     {bulkSaved > 0 && <div className="password-success-banner">
       <span><strong>{bulkSaved}</strong> carteira(s) processada(s) com sucesso no cadastro em massa.</span>
+    </div>}
+    {deleted && <div className="password-success-banner">
+      <span>Cliente <strong>{deleted}</strong> excluído da operação. O histórico anterior foi preservado.</span>
     </div>}
 
     <div className="client-kpi-grid">
@@ -189,6 +196,7 @@ export default async function ClientsPage({
               <th>Produto</th>
               <th>Comercial</th>
               <th>Status</th>
+              {user.role === "ADMIN" && <th>Ações</th>}
             </tr>
           </thead>
           <tbody>
@@ -198,6 +206,9 @@ export default async function ClientsPage({
               <td><span className={`badge client-product ${p.product_code.toLowerCase()}`}>{p.product_name}</span></td>
               <td>{p.commercial_name || <span className="client-empty-value">Não definido</span>}</td>
               <td>{p.active ? <span className="badge RESOLVIDO">Ativo</span> : <span className="badge">Inativo</span>}</td>
+              {user.role === "ADMIN" && <td className="client-actions-cell">
+                <DeleteClientButton clientId={p.client_id} clientName={p.client_name}/>
+              </td>}
             </tr>)}
           </tbody>
         </table>

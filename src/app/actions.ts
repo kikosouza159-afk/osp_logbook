@@ -226,6 +226,60 @@ export async function createClientAction(formData: FormData) {
   redirect("/clients?saved=1");
 }
 
+export async function deleteClientAction(formData: FormData) {
+  const actor = await requireUser(["ADMIN"]);
+  const clientId = text(formData, "client_id");
+
+  const parsed = z.string().uuid().safeParse(clientId);
+  if (!parsed.success) throw new Error("Cliente inválido para exclusão.");
+
+  const client = await getPool().connect();
+  let clientName = "";
+  try {
+    await client.query("BEGIN");
+
+    const target = (await client.query<{ id:string; display_name:string; active:boolean }>(
+      "SELECT id,display_name,active FROM clients WHERE id=$1 FOR UPDATE",
+      [clientId]
+    )).rows[0];
+
+    if (!target) throw new Error("Cliente não encontrado.");
+    clientName = target.display_name;
+
+    await client.query(
+      "UPDATE clients SET active=FALSE,updated_at=NOW() WHERE id=$1",
+      [clientId]
+    );
+    await client.query(
+      "UPDATE client_portfolios SET active=FALSE,updated_at=NOW() WHERE client_id=$1",
+      [clientId]
+    );
+    await client.query(
+      "DELETE FROM analyst_clients WHERE client_id=$1",
+      [clientId]
+    );
+
+    await client.query(
+      "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'DELETE_CLIENT','client',$2,$3::jsonb)",
+      [actor.id,clientId,JSON.stringify({clientName,mode:"soft_delete",historyPreserved:true})]
+    );
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  revalidatePath("/clients");
+  revalidatePath("/analysts");
+  revalidatePath("/checklist");
+  revalidatePath("/incidents/new");
+  revalidatePath("/");
+  redirect(`/clients?deleted=${encodeURIComponent(clientName)}`);
+}
+
 export async function bulkUpsertClientsAction(formData: FormData) {
   const user = await requireUser(["ADMIN"]);
   const raw = text(formData,"bulk_clients");

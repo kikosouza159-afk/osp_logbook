@@ -24,6 +24,7 @@ export default async function AnalystsPage({ searchParams }: { searchParams: Pro
        FROM analyst_clients ac
        JOIN users u ON u.id=ac.analyst_id
        JOIN clients c ON c.id=ac.client_id
+       WHERE c.active=TRUE
        ORDER BY u.name,c.display_name`
     )
   ]);
