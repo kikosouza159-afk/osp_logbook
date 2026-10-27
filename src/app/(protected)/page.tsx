@@ -81,6 +81,7 @@ export default async function DashboardPage({
   const historyPeriod = [7,15,30].includes(historyPeriodRaw) ? historyPeriodRaw : 7;
   const historyAnalystFilter = typeof sp.hist_analyst === "string" ? sp.hist_analyst : "";
   const historyClientFilter = typeof sp.hist_client === "string" ? sp.hist_client : "";
+  const incidentScope = typeof sp.incidents === "string" && sp.incidents === "open" ? "open" : "today";
 
   const greeting = new Intl.DateTimeFormat("pt-BR", {
     timeZone:"America/Sao_Paulo",
@@ -671,7 +672,12 @@ export default async function DashboardPage({
     </>;
   }
 
-  const [data, incidents] = await Promise.all([getDashboardSummary(), getIncidents({}, 8)]);
+  const [data, incidents] = await Promise.all([
+    getDashboardSummary(),
+    incidentScope === "open"
+      ? getIncidents({openOnly:true}, null)
+      : getIncidents({date:todaySaoPaulo()}, null),
+  ]);
   const max = Math.max(...data.statuses.map(s=>s.total),1);
 
   return <>
@@ -708,6 +714,50 @@ export default async function DashboardPage({
       <section className="card panel"><div className="panel-title"><h2>Últimas movimentações</h2><Link href="/history" style={{fontSize:12,color:"var(--blue)"}}>Ver histórico</Link></div>{data.recent.length ? <div className="timeline">{data.recent.map(r=><div className="timeline-item" key={r.id}><strong>{r.action.replaceAll("_"," ")}</strong><span>{formatTime(r.created_at)} · {r.user_name || "Sistema"}</span></div>)}</div> : <div className="empty"><strong>Sem movimentações</strong>O diário começa a ganhar vida com o primeiro registro.</div>}</section>
     </div>
 
-    <section className="card table-card"><div className="panel" style={{paddingBottom:8}}><div className="panel-title"><h2>Registros recentes</h2><Link className="btn btn-secondary" href="/incidents">Ver todos</Link></div></div><div className="table-wrap"><table><thead><tr><th>Data/Hora</th><th>Área</th><th>Cliente</th><th>Produto</th><th>Incidente</th><th>Chamado</th><th>Analista</th><th>Prioridade</th><th>Status</th></tr></thead><tbody>{incidents.map(i=><tr key={i.id}><td>{formatDateTime(i.created_at)}</td><td>{i.area_code ? <span className="badge">{i.area_code}</span> : "—"}</td><td><strong>{i.client_name}</strong></td><td>{i.products || "—"}</td><td><Link prefetch={false} href={`/incidents/${i.id}`}>{i.title}</Link></td><td>{i.ticket_id || "—"}</td><td>{i.analyst_name || "Não atribuído"}</td><td><StatusBadge code={i.priority_code}/></td><td><StatusBadge code={i.status_code} label={i.status_label}/></td></tr>)}</tbody></table></div></section>
+    <section className="card table-card">
+      <div className="panel" style={{paddingBottom:8}}>
+        <div className="panel-title">
+          <div>
+            <h2>{incidentScope === "open" ? "Todos os incidentes abertos" : "Incidentes de hoje"}</h2>
+            <p style={{margin:"4px 0 0",fontSize:12,color:"var(--muted)"}}>
+              {incidentScope === "open"
+                ? "Backlog completo de incidentes ainda não resolvidos ou encerrados."
+                : "Registros criados na data de hoje."}
+            </p>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <Link className={`btn ${incidentScope === "today" ? "btn-primary" : "btn-secondary"}`} href="/?incidents=today">
+              Hoje
+            </Link>
+            <Link className={`btn ${incidentScope === "open" ? "btn-primary" : "btn-secondary"}`} href="/?incidents=open">
+              <Siren size={15}/> Todos abertos
+            </Link>
+            <Link className="btn btn-secondary" href="/incidents">Ver todos</Link>
+          </div>
+        </div>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Data/Hora</th><th>Área</th><th>Cliente</th><th>Produto</th><th>Incidente</th><th>Chamado</th><th>Analista</th><th>Prioridade</th><th>Status</th></tr></thead>
+          <tbody>
+            {incidents.map(i=><tr key={i.id}>
+              <td>{formatDateTime(i.created_at)}</td>
+              <td>{i.area_code ? <span className="badge">{i.area_code}</span> : "—"}</td>
+              <td><strong>{i.client_name}</strong></td>
+              <td>{i.products || "—"}</td>
+              <td><Link prefetch={false} href={`/incidents/${i.id}`}>{i.title}</Link></td>
+              <td>{i.ticket_id || "—"}</td>
+              <td>{i.analyst_name || "Não atribuído"}</td>
+              <td><StatusBadge code={i.priority_code}/></td>
+              <td><StatusBadge code={i.status_code} label={i.status_label}/></td>
+            </tr>)}
+          </tbody>
+        </table>
+        {!incidents.length && <div className="empty">
+          <strong>{incidentScope === "open" ? "Nenhum incidente aberto" : "Nenhum incidente registrado hoje"}</strong>
+          {incidentScope === "open" ? "O backlog está zerado." : "Use “Todos abertos” para consultar pendências de dias anteriores."}
+        </div>}
+      </div>
+    </section>
   </>;
 }
