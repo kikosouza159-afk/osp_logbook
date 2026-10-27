@@ -26,11 +26,14 @@ export function AppShell({
     });
   }
 
-  return <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
+  return <div className={`app-shell elite-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
+    <a className="skip-link" href="#main-content">Pular para o conteúdo</a>
+    <div className="elite-ambient elite-ambient-a" aria-hidden="true"/>
+    <div className="elite-ambient elite-ambient-b" aria-hidden="true"/>
     <Sidebar user={user} collapsed={collapsed} onToggle={toggleSidebar}/>
-    <main className="main">
+    <main className="main elite-main">
       <Header user={user}/>
-      <div className="content">{children}</div>
+      <div className="content elite-content" id="main-content">{children}</div>
     </main>
   </div>;
 }
