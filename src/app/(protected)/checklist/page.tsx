@@ -6,7 +6,7 @@ import { saveChecklistAction } from "@/app/actions";
 import { CHECKLIST_ACTIONS, CHECKLIST_ITEMS } from "@/lib/checklist";
 import { requireUser } from "@/lib/auth";
 import { query } from "@/lib/db";
-import { clientOptionLabel, formatDateTime } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import { ChecklistSuccessToast } from "@/components/checklist-success-toast";
 
 function todaySaoPaulo() {
@@ -21,7 +21,15 @@ function todaySaoPaulo() {
 }
 
 type Analyst = { id:string; name:string; username:string };
-type Client = { id:string; display_name:string; products:string|null; primary_analyst_id:string|null; primary_analyst_name:string|null };
+type Portfolio = {
+  id:string;
+  client_id:string;
+  client_name:string;
+  product_id:string;
+  product_code:string;
+  primary_analyst_id:string|null;
+  primary_analyst_name:string|null;
+};
 type ItemStatus = "EM_VALIDACAO"|"COM_ERRO"|"CONCLUIDO";
 type ItemRow = {
   item_key:string;
@@ -52,48 +60,43 @@ export default async function ChecklistPage({
   const saved = get("saved") === "1";
   const selectedActionKey = get("action");
 
-  const [analystsRes,clientsRes] = await Promise.all([
+  const [analystsRes,portfoliosRes] = await Promise.all([
     query<Analyst>(
       "SELECT id,name,username FROM users WHERE role='ANALYST' AND active=TRUE ORDER BY name"
     ),
-    query<Client>(`
+    query<Portfolio>(`
       SELECT
-        c.id,
-        c.display_name,
-        (
-          SELECT STRING_AGG(DISTINCT p.code, ', ' ORDER BY p.code)
-          FROM client_portfolios cp
-          JOIN products p ON p.id=cp.product_id
-          WHERE cp.client_id=c.id
-            AND cp.active=TRUE
-        ) AS products,
-        primary_link.analyst_id AS primary_analyst_id,
-        primary_user.name AS primary_analyst_name
-      FROM clients c
-      LEFT JOIN LATERAL (
-        SELECT ac.analyst_id
-        FROM analyst_clients ac
-        WHERE ac.client_id=c.id
-          AND ac.is_primary=TRUE
-        ORDER BY ac.created_at NULLS LAST,ac.analyst_id
-        LIMIT 1
-      ) primary_link ON TRUE
-      LEFT JOIN users primary_user ON primary_user.id=primary_link.analyst_id
+        cp.id,
+        cp.client_id,
+        c.display_name AS client_name,
+        cp.product_id,
+        p.code AS product_code,
+        cp.analyst_id AS primary_analyst_id,
+        u.name AS primary_analyst_name
+      FROM client_portfolios cp
+      JOIN clients c ON c.id=cp.client_id
+      JOIN products p ON p.id=cp.product_id
+      LEFT JOIN users u ON u.id=cp.analyst_id
       WHERE c.active=TRUE
-      ORDER BY c.display_name
+        AND cp.active=TRUE
+      ORDER BY c.display_name,p.code
     `)
   ]);
 
   const analysts = analystsRes.rows;
-  const clients = clientsRes.rows;
+  const portfolios = portfoliosRes.rows;
 
-  const requestedClient = get("client");
-  const defaultClient = clients.find(client => client.primary_analyst_id === user.id) ?? clients[0] ?? null;
-  const selectedClient = clients.find(client => client.id === requestedClient) ?? defaultClient;
+  const requestedPortfolio = get("portfolio");
+  const legacyClient = get("client");
+  const defaultPortfolio = portfolios.find(portfolio => portfolio.primary_analyst_id === user.id) ?? portfolios[0] ?? null;
+  const selectedPortfolio =
+    portfolios.find(portfolio => portfolio.id === requestedPortfolio)
+    ?? portfolios.find(portfolio => portfolio.client_id === legacyClient)
+    ?? defaultPortfolio;
 
   const requestedAnalyst = get("analyst");
-  const primaryAnalyst = selectedClient?.primary_analyst_id
-    ? analysts.find(analyst => analyst.id === selectedClient.primary_analyst_id)
+  const primaryAnalyst = selectedPortfolio?.primary_analyst_id
+    ? analysts.find(analyst => analyst.id === selectedPortfolio.primary_analyst_id)
     : null;
   const selectedAnalyst =
     analysts.find(analyst => analyst.id === requestedAnalyst)
@@ -103,7 +106,7 @@ export default async function ChecklistPage({
     ?? null;
 
   let itemRows: ItemRow[] = [];
-  if (selectedAnalyst && selectedClient) {
+  if (selectedAnalyst && selectedPortfolio) {
     itemRows = (await query<ItemRow>(`
       SELECT
         dci.item_key,
@@ -119,7 +122,8 @@ export default async function ChecklistPage({
       WHERE dc.checklist_date=$1::date
         AND dc.analyst_id=$2
         AND dc.client_id=$3
-    `, [date, selectedAnalyst.id, selectedClient.id])).rows;
+        AND dc.product_id=$4
+    `, [date, selectedAnalyst.id, selectedPortfolio.client_id, selectedPortfolio.product_id])).rows;
   }
 
   const itemMap = new Map(itemRows.map(r => [r.item_key, r]));
@@ -128,7 +132,7 @@ export default async function ChecklistPage({
     return new Date(row.updated_at).getTime() > new Date(latest.updated_at).getTime() ? row : latest;
   },null);
   const selectedIsPrimary = Boolean(
-    selectedAnalyst && selectedClient && selectedClient.primary_analyst_id === selectedAnalyst.id
+    selectedAnalyst && selectedPortfolio && selectedPortfolio.primary_analyst_id === selectedAnalyst.id
   );
   const total = CHECKLIST_ITEMS.length;
   const completed = CHECKLIST_ITEMS.filter(i => itemMap.get(i.key)?.status === "CONCLUIDO").length;
@@ -144,9 +148,9 @@ export default async function ChecklistPage({
     : CHECKLIST_ITEMS;
 
   const baseHref = (actionKey?:string) => {
-    if (!selectedAnalyst || !selectedClient) return "/checklist";
+    if (!selectedAnalyst || !selectedPortfolio) return "/checklist";
     const actionPart = actionKey ? `&action=${encodeURIComponent(actionKey)}` : "";
-    return `/checklist?date=${encodeURIComponent(date)}&analyst=${encodeURIComponent(selectedAnalyst.id)}&client=${encodeURIComponent(selectedClient.id)}${actionPart}`;
+    return `/checklist?date=${encodeURIComponent(date)}&analyst=${encodeURIComponent(selectedAnalyst.id)}&portfolio=${encodeURIComponent(selectedPortfolio.id)}${actionPart}`;
   };
 
   return <>
@@ -169,15 +173,17 @@ export default async function ChecklistPage({
         <label>Responsável</label>
         <select className="select" name="analyst" defaultValue={selectedAnalyst?.id || ""}>
           {analysts.map(a => <option key={a.id} value={a.id}>
-            {a.name}{selectedClient?.primary_analyst_id === a.id ? " • Principal" : ""}
+            {a.name}{selectedPortfolio?.primary_analyst_id === a.id ? " • Principal" : ""}
           </option>)}
         </select>
       </div>
 
       <div className="field">
         <label>Cliente</label>
-        <select className="select" name="client" defaultValue={selectedClient?.id || ""}>
-          {clients.map(c => <option key={c.id} value={c.id}>{clientOptionLabel(c.display_name,c.products)}{c.primary_analyst_name ? ` • Principal: ${c.primary_analyst_name}` : ""}</option>)}
+        <select className="select" name="portfolio" defaultValue={selectedPortfolio?.id || ""}>
+          {portfolios.map(portfolio => <option key={portfolio.id} value={portfolio.id}>
+            {portfolio.client_name} · {portfolio.product_code}{portfolio.primary_analyst_name ? ` • Principal: ${portfolio.primary_analyst_name}` : ""}
+          </option>)}
         </select>
       </div>
 
@@ -190,7 +196,7 @@ export default async function ChecklistPage({
     {!selectedAnalyst ? <section className="card empty">
       <strong>Nenhum analista disponível.</strong>
       Cadastre ou ative um analista para começar.
-    </section> : !selectedClient ? <section className="card empty">
+    </section> : !selectedPortfolio ? <section className="card empty">
       <strong>Nenhum cliente vinculado.</strong>
       Nenhum cliente ativo está disponível para o checklist.
     </section> : <>
@@ -230,8 +236,8 @@ export default async function ChecklistPage({
             ? <strong>{lastChange.updated_by_name || "Usuário não identificado"} · {formatDateTime(lastChange.updated_at)}</strong>
             : <strong>Ainda não houve alteração nesta data.</strong>}
         </div>
-        {selectedClient.primary_analyst_name && <small>
-          Principal da carteira: <b>{selectedClient.primary_analyst_name}</b>
+        {selectedPortfolio.primary_analyst_name && <small>
+          Principal da carteira: <b>{selectedPortfolio.primary_analyst_name}</b>
         </small>}
       </div>
 
@@ -296,12 +302,12 @@ export default async function ChecklistPage({
       <form action={saveChecklistAction} className="card checklist-card">
         <input type="hidden" name="checklist_date" value={date}/>
         <input type="hidden" name="analyst_id" value={selectedAnalyst.id}/>
-        <input type="hidden" name="client_id" value={selectedClient.id}/>
+        <input type="hidden" name="portfolio_id" value={selectedPortfolio.id}/>
         {selectedAction && <input type="hidden" name="return_action" value={selectedAction.key}/>}
 
         <div className="checklist-card-head">
           <div>
-            <span className="checklist-client-kicker">Cliente · {selectedClient.display_name}</span>
+            <span className="checklist-client-kicker">Cliente · {selectedPortfolio.client_name} · {selectedPortfolio.product_code}</span>
             <h2>{selectedAction ? selectedAction.label : "Todas as validações"}</h2>
             <p>Altere o status durante o dia. Itens com erro podem voltar para validação e depois serem concluídos.</p>
           </div>
