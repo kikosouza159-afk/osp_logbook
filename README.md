@@ -136,3 +136,61 @@ Clientes e produtos usam relacionamento N:N. Incidentes também usam N:N com pro
 - Webhook/API da ferramenta de chamados.
 - Relatório diário automático.
 - IA para resumo, classificação e reincidência de incidentes.
+
+
+## ETL OSP Alerta
+
+O projeto contém o processo `scripts/etl-osp-alerta.mjs` para sincronizar a tabela SQL Server
+`ProfessionalServices02.dbo.OSP_Alerta` com a tabela PostgreSQL `osp_alerta`.
+
+Fluxo de cada execução:
+
+1. Consulta todas as linhas do dia atual na origem.
+2. Valida a estrutura da origem.
+3. Se a origem retornar zero linhas, preserva os dados atuais do PostgreSQL por segurança.
+4. Abre uma transação no PostgreSQL.
+5. Exclui apenas o dia atual da `osp_alerta`.
+6. Insere novamente o snapshot completo do dia em lotes.
+7. Registra o resultado em `osp_alerta_etl_log`.
+
+Os códigos de produto esperados atualmente são:
+
+- `4`: Locator
+- `5`: ADA
+
+A consulta reconhece automaticamente as colunas `Servidor` e `Cliente` quando existirem na
+`ProfessionalServices02.dbo.OSP_Alerta`. Enquanto uma delas não existir, o ETL mantém a carga e
+grava `NULL` naquele campo, além de registrar o aviso no log.
+
+### Configuração
+
+Crie um `.env.local` com as variáveis do PostgreSQL e SQL Server. O script carrega automaticamente
+`.env` e `.env.local`.
+
+```env
+DATABASE_URL_UNPOOLED=postgresql://...
+SQLSERVER_HOST=servidor-sql
+SQLSERVER_PORT=1433
+SQLSERVER_DATABASE=ProfessionalServices02
+SQLSERVER_USER=usuario
+SQLSERVER_PASSWORD=senha
+SQLSERVER_ENCRYPT=false
+SQLSERVER_TRUST_CERT=true
+OSP_ALERTA_SOURCE_TABLE=ProfessionalServices02.dbo.OSP_Alerta
+OSP_ALERTA_BATCH_SIZE=500
+OSP_ALERTA_ALLOW_EMPTY_REPLACE=false
+```
+
+Execução manual:
+
+```bash
+npm run etl:osp-alerta
+```
+
+No Windows também pode ser utilizado:
+
+```text
+scripts\run-osp-alerta-etl.bat
+```
+
+O launcher retorna `Exit Code 0` quando a execução termina normalmente e código diferente de zero em falhas.
