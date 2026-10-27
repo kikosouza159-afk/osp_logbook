@@ -939,12 +939,28 @@ export async function saveChecklistAction(formData: FormData) {
 export async function createIncidentAction(formData: FormData) {
   const user = await requireUser(["ADMIN", "ANALYST"]);
   const data = {
-    clientId: text(formData, "client_id"), area: text(formData, "area"), title: text(formData, "title"), description: text(formData, "description"),
-    products: formData.getAll("products").map(String), priority: text(formData, "priority"), status: text(formData, "status"),
-    analyst: text(formData, "assigned_user_id"), hasTicket: formData.get("has_ticket") === "on", ticketId: text(formData, "ticket_id"),
-    ticketUrl: text(formData, "ticket_url"), ticketOpenedAt: text(formData, "ticket_opened_at"), notes: text(formData, "internal_notes")
+    portfolioId: text(formData, "portfolio_id"),
+    area: text(formData, "area"),
+    title: text(formData, "title"),
+    description: text(formData, "description"),
+    priority: text(formData, "priority"),
+    status: text(formData, "status"),
+    analyst: text(formData, "assigned_user_id"),
+    hasTicket: formData.get("has_ticket") === "on",
+    ticketId: text(formData, "ticket_id"),
+    ticketUrl: text(formData, "ticket_url"),
+    ticketOpenedAt: text(formData, "ticket_opened_at"),
+    notes: text(formData, "internal_notes"),
   };
-  const parsed = z.object({ clientId:z.string().uuid(), area:z.string().min(1), title:z.string().min(3), description:z.string().min(3), products:z.array(z.string()).min(1), priority:z.string().min(1), status:z.string().min(1) }).safeParse(data);
+
+  const parsed = z.object({
+    portfolioId:z.string().uuid(),
+    area:z.string().min(1),
+    title:z.string().min(3),
+    description:z.string().min(3),
+    priority:z.string().min(1),
+    status:z.string().min(1),
+  }).safeParse(data);
   if (!parsed.success) throw new Error("Preencha os campos obrigatórios do incidente.");
   if (data.hasTicket && !data.ticketId) throw new Error("Informe o ID do chamado.");
 
@@ -952,29 +968,91 @@ export async function createIncidentAction(formData: FormData) {
   let incidentId = "";
   try {
     await client.query("BEGIN");
-    const inserted = await client.query<{ id: string }>(`
-      INSERT INTO incidents(client_id,area_code,title,description,has_ticket,ticket_id,ticket_url,ticket_opened_at,priority_code,status_code,assigned_user_id,internal_notes,created_by)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id
-    `, [data.clientId,data.area,data.title,data.description,data.hasTicket,nullable(data.ticketId),nullable(data.ticketUrl),nullable(data.ticketOpenedAt),data.priority,data.status,nullable(data.analyst),nullable(data.notes),user.id]);
+
+    const portfolio = (await client.query<{
+      id:string;
+      client_id:string;
+      product_id:string;
+      client_name:string;
+      product_code:string;
+    }>(
+      `SELECT
+         cp.id,
+         cp.client_id,
+         cp.product_id,
+         c.display_name AS client_name,
+         p.code AS product_code
+       FROM client_portfolios cp
+       JOIN clients c ON c.id=cp.client_id
+       JOIN products p ON p.id=cp.product_id
+       WHERE cp.id=$1
+         AND cp.active=TRUE
+         AND c.active=TRUE
+         AND p.active=TRUE`,
+      [data.portfolioId]
+    )).rows[0];
+    if (!portfolio) throw new Error("Carteira não encontrada ou inativa.");
+
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO incidents(
+         client_id,area_code,title,description,has_ticket,ticket_id,ticket_url,ticket_opened_at,
+         priority_code,status_code,assigned_user_id,internal_notes,created_by
+       )
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       RETURNING id`,
+      [
+        portfolio.client_id,data.area,data.title,data.description,data.hasTicket,
+        nullable(data.ticketId),nullable(data.ticketUrl),nullable(data.ticketOpenedAt),
+        data.priority,data.status,nullable(data.analyst),nullable(data.notes),user.id
+      ]
+    );
     incidentId = inserted.rows[0].id;
-    await client.query(`INSERT INTO incident_products(incident_id,product_id) SELECT $1::uuid,id FROM products WHERE code=ANY($2::text[])`, [incidentId,data.products]);
-    await client.query(`INSERT INTO incident_updates(incident_id,user_id,update_type,new_value,comment) VALUES($1,$2,'INCIDENT_CREATED',$3,$4)`, [incidentId,user.id,data.status,"Registro criado no diário de bordo"]);
-    await client.query(`INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'CREATE_INCIDENT','incident',$2,$3::jsonb)`, [user.id,incidentId,JSON.stringify({ clientId:data.clientId,area:data.area,products:data.products,status:data.status })]);
+
+    await client.query(
+      "INSERT INTO incident_products(incident_id,product_id) VALUES($1,$2)",
+      [incidentId,portfolio.product_id]
+    );
+    await client.query(
+      "INSERT INTO incident_updates(incident_id,user_id,update_type,new_value,comment) VALUES($1,$2,'INCIDENT_CREATED',$3,$4)",
+      [incidentId,user.id,data.status,`Registro criado para ${portfolio.client_name} · ${portfolio.product_code}`]
+    );
+    await client.query(
+      "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'CREATE_INCIDENT','incident',$2,$3::jsonb)",
+      [user.id,incidentId,JSON.stringify({
+        portfolioId:data.portfolioId,
+        clientId:portfolio.client_id,
+        clientName:portfolio.client_name,
+        productId:portfolio.product_id,
+        productCode:portfolio.product_code,
+        area:data.area,
+        status:data.status,
+      })]
+    );
+
     await client.query("COMMIT");
-  } catch (e) { await client.query("ROLLBACK"); throw e; } finally { client.release(); }
-  revalidatePath("/"); revalidatePath("/incidents"); revalidatePath("/logbook"); revalidatePath("/history");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+
+  revalidatePath("/");
+  revalidatePath("/incidents");
+  revalidatePath("/logbook");
+  revalidatePath("/history");
   redirect(`/incidents/${incidentId}`);
 }
+
 
 export async function updateIncidentAction(formData: FormData) {
   const user = await requireUser(["ADMIN", "ANALYST"]);
   const data = {
     id: text(formData, "id"),
-    clientId: text(formData, "client_id"),
+    portfolioId: text(formData, "portfolio_id"),
     area: text(formData, "area"),
     title: text(formData, "title"),
     description: text(formData, "description"),
-    products: Array.from(new Set(formData.getAll("products").map(String))),
     priority: text(formData, "priority"),
     status: text(formData, "status"),
     analyst: text(formData, "assigned_user_id"),
@@ -987,10 +1065,9 @@ export async function updateIncidentAction(formData: FormData) {
 
   const parsed = z.object({
     id: z.string().uuid(),
-    clientId: z.string().uuid(),
+    portfolioId: z.string().uuid(),
     title: z.string().min(3),
     description: z.string().min(3),
-    products: z.array(z.string()).min(1),
     priority: z.string().min(1),
     status: z.string().min(1),
   }).safeParse(data);
@@ -1013,26 +1090,38 @@ export async function updateIncidentAction(formData: FormData) {
     )).rows[0];
     if (!current) throw new Error("Incidente não encontrado.");
 
-    const targetClient = (await client.query<{id:string}>(
-      "SELECT id FROM clients WHERE id=$1 AND active=TRUE",
-      [data.clientId]
+    const portfolio = (await client.query<{
+      id:string;
+      client_id:string;
+      product_id:string;
+      client_name:string;
+      product_code:string;
+    }>(
+      `SELECT
+         cp.id,
+         cp.client_id,
+         cp.product_id,
+         c.display_name AS client_name,
+         p.code AS product_code
+       FROM client_portfolios cp
+       JOIN clients c ON c.id=cp.client_id
+       JOIN products p ON p.id=cp.product_id
+       WHERE cp.id=$1
+         AND cp.active=TRUE
+         AND c.active=TRUE
+         AND p.active=TRUE`,
+      [data.portfolioId]
     )).rows[0];
-    if (!targetClient) throw new Error("Cliente não encontrado ou inativo.");
+    if (!portfolio) throw new Error("Carteira não encontrada ou inativa.");
 
-    const productRows = (await client.query<{id:string;code:string}>(
-      "SELECT id,code FROM products WHERE code=ANY($1::text[]) AND active=TRUE",
-      [data.products]
-    )).rows;
-    if (productRows.length !== data.products.length) throw new Error("Há produto inválido ou inativo.");
-
-    const currentProducts = (await client.query<{code:string}>(
-      `SELECT p.code
+    const currentProducts = (await client.query<{id:string;code:string}>(
+      `SELECT p.id,p.code
        FROM incident_products ip
        JOIN products p ON p.id=ip.product_id
        WHERE ip.incident_id=$1
        ORDER BY p.code`,
       [data.id]
-    )).rows.map(row=>row.code);
+    )).rows;
 
     const analyst = nullable(data.analyst);
     const area = nullable(data.area);
@@ -1055,7 +1144,7 @@ export async function updateIncidentAction(formData: FormData) {
            resolved_at=CASE WHEN $6 IN ('RESOLVIDO','ENCERRADO') THEN COALESCE(resolved_at,NOW()) ELSE NULL END
        WHERE id=$1`,
       [
-        data.id,data.clientId,data.title,data.description,data.priority,data.status,analyst,
+        data.id,portfolio.client_id,data.title,data.description,data.priority,data.status,analyst,
         nullable(data.notes),data.hasTicket,nullable(data.ticketId),nullable(data.ticketUrl),
         nullable(data.ticketOpenedAt),area
       ]
@@ -1063,8 +1152,8 @@ export async function updateIncidentAction(formData: FormData) {
 
     await client.query("DELETE FROM incident_products WHERE incident_id=$1", [data.id]);
     await client.query(
-      "INSERT INTO incident_products(incident_id,product_id) SELECT $1::uuid,id FROM products WHERE code=ANY($2::text[])",
-      [data.id,data.products]
+      "INSERT INTO incident_products(incident_id,product_id) VALUES($1,$2)",
+      [data.id,portfolio.product_id]
     );
 
     if (current.status_code !== data.status) {
@@ -1085,27 +1174,29 @@ export async function updateIncidentAction(formData: FormData) {
         [data.id,user.id,current.area_code,area]
       );
     }
-    if (current.client_id !== data.clientId) {
+    if (current.client_id !== portfolio.client_id) {
       await client.query(
         "INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'CLIENT_CHANGE',$3,$4)",
-        [data.id,user.id,current.client_id,data.clientId]
+        [data.id,user.id,current.client_id,portfolio.client_id]
       );
     }
 
-    const oldProducts = [...currentProducts].sort().join(", ");
-    const newProducts = [...data.products].sort().join(", ");
-    if (oldProducts !== newProducts) {
+    const oldProducts = currentProducts.map(row=>row.code).sort().join(", ");
+    if (oldProducts !== portfolio.product_code) {
       await client.query(
         "INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'PRODUCT_CHANGE',$3,$4)",
-        [data.id,user.id,oldProducts,newProducts]
+        [data.id,user.id,oldProducts,portfolio.product_code]
       );
     }
 
     await client.query(
       "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'UPDATE_INCIDENT','incident',$2,$3::jsonb)",
       [user.id,data.id,JSON.stringify({
-        clientId:data.clientId,
-        products:data.products,
+        portfolioId:data.portfolioId,
+        clientId:portfolio.client_id,
+        clientName:portfolio.client_name,
+        productId:portfolio.product_id,
+        productCode:portfolio.product_code,
         status:data.status,
         priority:data.priority,
         analyst,
