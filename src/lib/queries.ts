@@ -87,6 +87,43 @@ export async function getClients() {
   `)).rows;
 }
 
+export async function getClientPortfolioRows() {
+  return (await query<{
+    client_id:string;
+    client_name:string;
+    active:boolean;
+    product_code:string;
+    product_name:string;
+    analyst_id:string|null;
+    analyst_name:string|null;
+    commercial_id:string|null;
+    commercial_name:string|null;
+  }>(`
+    SELECT
+      c.id client_id,
+      c.display_name client_name,
+      c.active,
+      p.code product_code,
+      p.name product_name,
+      cp.analyst_id,
+      u.name analyst_name,
+      cp.commercial_contact_id commercial_id,
+      cc.name commercial_name
+    FROM client_products cp
+    JOIN clients c ON c.id=cp.client_id
+    JOIN products p ON p.id=cp.product_id
+    LEFT JOIN users u ON u.id=cp.analyst_id
+    LEFT JOIN commercial_contacts cc ON cc.id=cp.commercial_contact_id
+    ORDER BY c.display_name,p.name
+  `)).rows;
+}
+
+export async function getCommercialContacts() {
+  return (await query<{id:string;name:string}>(
+    "SELECT id,name FROM commercial_contacts WHERE active=TRUE ORDER BY name"
+  )).rows;
+}
+
 export async function getProducts() {
   return (await query<{ id: string; code: string; name: string }>("SELECT id, code, name FROM products WHERE active = TRUE ORDER BY name")).rows;
 }
