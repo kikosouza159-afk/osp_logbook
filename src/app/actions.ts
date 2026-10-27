@@ -382,18 +382,23 @@ export async function saveChecklistAction(formData: FormData) {
            checklist_id,item_key,status,completed,observation,completed_at,updated_by,updated_at
          )
          VALUES(
-           $1,$2,$3,$3='CONCLUIDO',$4,
-           CASE WHEN $3='CONCLUIDO' THEN NOW() ELSE NULL END,
-           $5,NOW()
+           $1::uuid,
+           $2::varchar(80),
+           $3::varchar(24),
+           ($3::varchar(24)='CONCLUIDO'::varchar),
+           $4::text,
+           CASE WHEN $3::varchar(24)='CONCLUIDO'::varchar THEN NOW() ELSE NULL END,
+           $5::uuid,
+           NOW()
          )
          ON CONFLICT(checklist_id,item_key)
          DO UPDATE SET
            status=EXCLUDED.status,
-           completed=(EXCLUDED.status='CONCLUIDO'),
+           completed=(EXCLUDED.status='CONCLUIDO'::varchar),
            observation=EXCLUDED.observation,
            completed_at=CASE
-             WHEN EXCLUDED.status='CONCLUIDO' AND daily_checklist_items.completed_at IS NULL THEN NOW()
-             WHEN EXCLUDED.status='CONCLUIDO' THEN daily_checklist_items.completed_at
+             WHEN EXCLUDED.status='CONCLUIDO'::varchar AND daily_checklist_items.completed_at IS NULL THEN NOW()
+             WHEN EXCLUDED.status='CONCLUIDO'::varchar THEN daily_checklist_items.completed_at
              ELSE NULL
            END,
            updated_by=EXCLUDED.updated_by,
