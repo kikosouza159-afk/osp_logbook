@@ -1,7 +1,20 @@
 import type { LucideIcon } from "lucide-react";
 
+function toneForLabel(label:string) {
+  const value = label.toLowerCase();
+  if (value.includes("resolvid")) return "success";
+  if (value.includes("aguard")) return "warning";
+  if (value.includes("abert")) return "danger";
+  if (value.includes("tratativa")) return "blue";
+  if (value.includes("locator")) return "blue";
+  if (value.includes("ada")) return "orange";
+  if (value.includes("cliente")) return "violet";
+  return "navy";
+}
+
 export function KpiCard({ label, value, icon: Icon }: { label: string; value: number | string; icon: LucideIcon }) {
-  return <article className="card kpi elite-kpi">
+  const tone = toneForLabel(label);
+  return <article className={`card kpi elite-kpi tone-${tone}`}>
     <div className="elite-kpi-accent" aria-hidden="true"/>
     <div className="kpi-top">
       <span>{label}</span>
