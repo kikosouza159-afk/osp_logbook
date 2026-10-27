@@ -51,32 +51,241 @@ export async function logoutAction() {
   redirect("/login");
 }
 
+function normalizePortfolioValue(value:string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .replace(/\u00a0/g," ")
+    .replace(/\s+/g," ")
+    .trim()
+    .toLowerCase();
+}
+
+async function resolvePortfolioAnalyst(client: import("pg").PoolClient, value:string) {
+  const normalized = normalizePortfolioValue(value);
+  if (!normalized) return null;
+
+  const aliasToUsername: Record<string,string> = {
+    "duda":"eduarda.salvador",
+    "eduarda":"eduarda.salvador",
+    "michele":"michele.silva",
+    "pedro":"pedro.santos",
+    "sheila":"sheila.marques",
+    "elvis":"elvis.santos",
+  };
+
+  const aliasUsername = aliasToUsername[normalized];
+  if (aliasUsername) {
+    const byAlias = await client.query<{id:string}>(
+      "SELECT id FROM users WHERE username=$1 AND active=TRUE LIMIT 1",
+      [aliasUsername]
+    );
+    if (byAlias.rows[0]) return byAlias.rows[0].id;
+  }
+
+  const result = await client.query<{id:string}>(
+    `SELECT id
+     FROM users
+     WHERE active=TRUE
+       AND role IN ('ADMIN','ANALYST')
+       AND (
+         LOWER(name)=LOWER($1)
+         OR LOWER(username)=LOWER($1)
+         OR LOWER(SPLIT_PART(name,' ',1))=LOWER($1)
+       )
+     ORDER BY CASE WHEN LOWER(name)=LOWER($1) THEN 0 ELSE 1 END
+     LIMIT 1`,
+    [value.trim()]
+  );
+  return result.rows[0]?.id ?? null;
+}
+
+async function upsertClientPortfolio(
+  client: import("pg").PoolClient,
+  data:{clientName:string; analystName:string; productCode:string; commercialName:string}
+) {
+  const clientName = data.clientName.replace(/\u00a0/g," ").replace(/\s+/g," ").trim();
+  const productCode = normalizePortfolioValue(data.productCode) === "ada" ? "ADA"
+    : normalizePortfolioValue(data.productCode) === "locator" ? "LOCATOR"
+    : "";
+
+  if (!clientName) throw new Error("Cliente não informado.");
+  if (!productCode) throw new Error(`Produto inválido para ${clientName}. Use Locator ou ADA.`);
+
+  const analystId = await resolvePortfolioAnalyst(client,data.analystName);
+  if (data.analystName && !analystId) {
+    throw new Error(`Acompanhamento "${data.analystName}" não encontrado para ${clientName}.`);
+  }
+
+  const product = (await client.query<{id:string}>(
+    "SELECT id FROM products WHERE code=$1 AND active=TRUE LIMIT 1",
+    [productCode]
+  )).rows[0];
+  if (!product) throw new Error(`Produto ${productCode} não está ativo no cadastro.`);
+
+  let commercialId:string|null = null;
+  if (data.commercialName) {
+    const commercial = (await client.query<{id:string}>(
+      "SELECT id FROM commercials WHERE LOWER(name)=LOWER($1) AND active=TRUE LIMIT 1",
+      [data.commercialName.trim()]
+    )).rows[0];
+    if (!commercial) throw new Error(`Comercial "${data.commercialName}" não encontrado para ${clientName}.`);
+    commercialId = commercial.id;
+  }
+
+  let target = (await client.query<{id:string}>(
+    "SELECT id FROM clients WHERE LOWER(display_name)=LOWER($1) LIMIT 1",
+    [clientName]
+  )).rows[0];
+
+  if (!target) {
+    target = (await client.query<{id:string}>(
+      "INSERT INTO clients(name,display_name,active) VALUES($1,$1,TRUE) RETURNING id",
+      [clientName]
+    )).rows[0];
+  } else {
+    await client.query(
+      "UPDATE clients SET display_name=$2,name=$2,active=TRUE,updated_at=NOW() WHERE id=$1",
+      [target.id,clientName]
+    );
+  }
+
+  await client.query(
+    `INSERT INTO client_products(client_id,product_id)
+     VALUES($1,$2)
+     ON CONFLICT(client_id,product_id) DO NOTHING`,
+    [target.id,product.id]
+  );
+
+  await client.query(
+    `INSERT INTO client_portfolios(client_id,product_id,analyst_id,commercial_id,active)
+     VALUES($1,$2,$3,$4,TRUE)
+     ON CONFLICT(client_id,product_id)
+     DO UPDATE SET
+       analyst_id=EXCLUDED.analyst_id,
+       commercial_id=EXCLUDED.commercial_id,
+       active=TRUE,
+       updated_at=NOW()`,
+    [target.id,product.id,analystId,commercialId]
+  );
+
+  if (analystId) {
+    const hasPrimary = (await client.query<{exists:boolean}>(
+      "SELECT EXISTS(SELECT 1 FROM analyst_clients WHERE client_id=$1 AND is_primary=TRUE) AS exists",
+      [target.id]
+    )).rows[0]?.exists ?? false;
+
+    await client.query(
+      `INSERT INTO analyst_clients(analyst_id,client_id,is_primary)
+       VALUES($1,$2,$3)
+       ON CONFLICT(analyst_id,client_id) DO NOTHING`,
+      [analystId,target.id,!hasPrimary]
+    );
+  }
+
+  return {clientId:target.id,productCode,analystId,commercialId};
+}
+
 export async function createClientAction(formData: FormData) {
-  const user = await requireUser(["ADMIN", "ANALYST"]);
-  const schema = z.object({ name: z.string().min(2), displayName: z.string().min(2), products: z.array(z.string()).min(1) });
-  const parsed = schema.safeParse({ name: text(formData, "name"), displayName: text(formData, "display_name"), products: formData.getAll("products").map(String) });
-  if (!parsed.success) throw new Error("Preencha o cliente e selecione ao menos um produto.");
+  const user = await requireUser(["ADMIN","ANALYST"]);
+  const data = {
+    clientName:text(formData,"client_name") || text(formData,"display_name") || text(formData,"name"),
+    analystName:text(formData,"analyst_name"),
+    productCode:text(formData,"product"),
+    commercialName:text(formData,"commercial"),
+  };
+
+  const parsed = z.object({
+    clientName:z.string().min(2),
+    analystName:z.string().min(1),
+    productCode:z.string().min(1),
+    commercialName:z.string().optional(),
+  }).safeParse(data);
+  if (!parsed.success) throw new Error("Preencha Cliente, Acompanhamento e Produto.");
 
   const client = await getPool().connect();
   try {
     await client.query("BEGIN");
-    const inserted = await client.query<{ id: string }>(
-      "INSERT INTO clients(name, display_name) VALUES($1,$2) RETURNING id",
-      [parsed.data.name, parsed.data.displayName]
-    );
-    const id = inserted.rows[0].id;
+    const saved = await upsertClientPortfolio(client,parsed.data);
     await client.query(
-      `INSERT INTO client_products(client_id, product_id)
-       SELECT $1::uuid, id FROM products WHERE code = ANY($2::text[]) ON CONFLICT DO NOTHING`,
-      [id, parsed.data.products]
+      "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'UPSERT_CLIENT_PORTFOLIO','client',$2,$3::jsonb)",
+      [user.id,saved.clientId,JSON.stringify({...parsed.data,productCode:saved.productCode})]
     );
-    await client.query("INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'CREATE_CLIENT','client',$2,$3::jsonb)", [user.id, id, JSON.stringify({ displayName: parsed.data.displayName, products: parsed.data.products })]);
     await client.query("COMMIT");
-  } catch (e) {
+  } catch (error) {
     await client.query("ROLLBACK");
-    throw e;
-  } finally { client.release(); }
+    throw error;
+  } finally {
+    client.release();
+  }
+
   revalidatePath("/clients");
+  revalidatePath("/analysts");
+  revalidatePath("/checklist");
+  revalidatePath("/");
+  redirect("/clients?saved=1");
+}
+
+export async function bulkUpsertClientsAction(formData: FormData) {
+  const user = await requireUser(["ADMIN"]);
+  const raw = text(formData,"bulk_clients");
+  if (!raw) throw new Error("Cole a lista de clientes antes de importar.");
+
+  const lines = raw
+    .replace(/\r/g,"")
+    .split("\n")
+    .map(line=>line.replace(/\u00a0/g," ").trim())
+    .filter(Boolean);
+
+  const rows = lines.map((line,index)=>{
+    const separator = line.includes("\t") ? "\t" : line.includes(";") ? ";" : "|";
+    const parts = line.split(separator).map(value=>value.trim());
+    return {
+      line:index+1,
+      clientName:parts[0] || "",
+      analystName:parts[1] || "",
+      productCode:parts[2] || "",
+      commercialName:parts[3] || "",
+    };
+  }).filter((row,index)=>{
+    if (index!==0) return true;
+    return normalizePortfolioValue(row.clientName) !== "cliente";
+  });
+
+  if (!rows.length) throw new Error("Nenhuma linha válida encontrada.");
+
+  const client = await getPool().connect();
+  const saved:Array<{clientId:string;productCode:string}> = [];
+  try {
+    await client.query("BEGIN");
+
+    for (const row of rows) {
+      try {
+        const result = await upsertClientPortfolio(client,row);
+        saved.push({clientId:result.clientId,productCode:result.productCode});
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Linha ${row.line}: ${message}`);
+      }
+    }
+
+    await client.query(
+      "INSERT INTO audit_logs(user_id,action,entity,metadata) VALUES($1,'BULK_UPSERT_CLIENT_PORTFOLIOS','client_portfolio',$2::jsonb)",
+      [user.id,JSON.stringify({rows:saved.length,source:"clients_bulk_paste"})]
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  revalidatePath("/clients");
+  revalidatePath("/analysts");
+  revalidatePath("/checklist");
+  revalidatePath("/");
+  redirect(`/clients?bulk_saved=${saved.length}`);
 }
 
 export async function createAnalystAction(formData: FormData) {
