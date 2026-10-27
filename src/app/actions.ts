@@ -946,18 +946,227 @@ export async function createIncidentAction(formData: FormData) {
 
 export async function updateIncidentAction(formData: FormData) {
   const user = await requireUser(["ADMIN", "ANALYST"]);
-  const id = text(formData, "id");
-  const current = (await query<{ status_code:string; assigned_user_id:string|null; priority_code:string; area_code:string|null }>("SELECT status_code,assigned_user_id,priority_code,area_code FROM incidents WHERE id=$1", [id])).rows[0];
-  if (!current) throw new Error("Incidente não encontrado.");
-  const status = text(formData,"status"), analyst = nullable(text(formData,"assigned_user_id")), priority = text(formData,"priority"), area = nullable(text(formData,"area"));
-  await query(`UPDATE incidents SET title=$2,description=$3,priority_code=$4,status_code=$5,assigned_user_id=$6,internal_notes=$7,
-      has_ticket=$8,ticket_id=$9,ticket_url=$10,ticket_opened_at=$11,area_code=$12,updated_at=NOW(),resolved_at=CASE WHEN $5 IN ('RESOLVIDO','ENCERRADO') THEN COALESCE(resolved_at,NOW()) ELSE NULL END
-      WHERE id=$1`, [id,text(formData,"title"),text(formData,"description"),priority,status,analyst,nullable(text(formData,"internal_notes")),formData.get("has_ticket")==="on",nullable(text(formData,"ticket_id")),nullable(text(formData,"ticket_url")),nullable(text(formData,"ticket_opened_at")),area]);
-  if (current.status_code !== status) await query("INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'STATUS_CHANGE',$3,$4)",[id,user.id,current.status_code,status]);
-  if (current.assigned_user_id !== analyst) await query("INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'ASSIGN_ANALYST',$3,$4)",[id,user.id,current.assigned_user_id,analyst]);
-  if (current.area_code !== area) await query("INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'AREA_CHANGE',$3,$4)",[id,user.id,current.area_code,area]);
-  await audit(user.id,"UPDATE_INCIDENT","incident",id,{status,priority,analyst,area});
-  revalidatePath(`/incidents/${id}`); revalidatePath("/incidents"); revalidatePath("/"); revalidatePath("/history");
+  const data = {
+    id: text(formData, "id"),
+    clientId: text(formData, "client_id"),
+    area: text(formData, "area"),
+    title: text(formData, "title"),
+    description: text(formData, "description"),
+    products: Array.from(new Set(formData.getAll("products").map(String))),
+    priority: text(formData, "priority"),
+    status: text(formData, "status"),
+    analyst: text(formData, "assigned_user_id"),
+    hasTicket: formData.get("has_ticket") === "on",
+    ticketId: text(formData, "ticket_id"),
+    ticketUrl: text(formData, "ticket_url"),
+    ticketOpenedAt: text(formData, "ticket_opened_at"),
+    notes: text(formData, "internal_notes"),
+  };
+
+  const parsed = z.object({
+    id: z.string().uuid(),
+    clientId: z.string().uuid(),
+    title: z.string().min(3),
+    description: z.string().min(3),
+    products: z.array(z.string()).min(1),
+    priority: z.string().min(1),
+    status: z.string().min(1),
+  }).safeParse(data);
+  if (!parsed.success) throw new Error("Preencha os campos obrigatórios do incidente.");
+  if (data.hasTicket && !data.ticketId) throw new Error("Informe o ID do chamado.");
+
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+
+    const current = (await client.query<{
+      client_id:string;
+      status_code:string;
+      assigned_user_id:string|null;
+      priority_code:string;
+      area_code:string|null;
+    }>(
+      "SELECT client_id,status_code,assigned_user_id,priority_code,area_code FROM incidents WHERE id=$1 FOR UPDATE",
+      [data.id]
+    )).rows[0];
+    if (!current) throw new Error("Incidente não encontrado.");
+
+    const targetClient = (await client.query<{id:string}>(
+      "SELECT id FROM clients WHERE id=$1 AND active=TRUE",
+      [data.clientId]
+    )).rows[0];
+    if (!targetClient) throw new Error("Cliente não encontrado ou inativo.");
+
+    const productRows = (await client.query<{id:string;code:string}>(
+      "SELECT id,code FROM products WHERE code=ANY($1::text[]) AND active=TRUE",
+      [data.products]
+    )).rows;
+    if (productRows.length !== data.products.length) throw new Error("Há produto inválido ou inativo.");
+
+    const currentProducts = (await client.query<{code:string}>(
+      `SELECT p.code
+       FROM incident_products ip
+       JOIN products p ON p.id=ip.product_id
+       WHERE ip.incident_id=$1
+       ORDER BY p.code`,
+      [data.id]
+    )).rows.map(row=>row.code);
+
+    const analyst = nullable(data.analyst);
+    const area = nullable(data.area);
+
+    await client.query(
+      `UPDATE incidents
+       SET client_id=$2,
+           title=$3,
+           description=$4,
+           priority_code=$5,
+           status_code=$6,
+           assigned_user_id=$7,
+           internal_notes=$8,
+           has_ticket=$9,
+           ticket_id=$10,
+           ticket_url=$11,
+           ticket_opened_at=$12,
+           area_code=$13,
+           updated_at=NOW(),
+           resolved_at=CASE WHEN $6 IN ('RESOLVIDO','ENCERRADO') THEN COALESCE(resolved_at,NOW()) ELSE NULL END
+       WHERE id=$1`,
+      [
+        data.id,data.clientId,data.title,data.description,data.priority,data.status,analyst,
+        nullable(data.notes),data.hasTicket,nullable(data.ticketId),nullable(data.ticketUrl),
+        nullable(data.ticketOpenedAt),area
+      ]
+    );
+
+    await client.query("DELETE FROM incident_products WHERE incident_id=$1", [data.id]);
+    await client.query(
+      "INSERT INTO incident_products(incident_id,product_id) SELECT $1::uuid,id FROM products WHERE code=ANY($2::text[])",
+      [data.id,data.products]
+    );
+
+    if (current.status_code !== data.status) {
+      await client.query(
+        "INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'STATUS_CHANGE',$3,$4)",
+        [data.id,user.id,current.status_code,data.status]
+      );
+    }
+    if (current.assigned_user_id !== analyst) {
+      await client.query(
+        "INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'ASSIGN_ANALYST',$3,$4)",
+        [data.id,user.id,current.assigned_user_id,analyst]
+      );
+    }
+    if (current.area_code !== area) {
+      await client.query(
+        "INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'AREA_CHANGE',$3,$4)",
+        [data.id,user.id,current.area_code,area]
+      );
+    }
+    if (current.client_id !== data.clientId) {
+      await client.query(
+        "INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'CLIENT_CHANGE',$3,$4)",
+        [data.id,user.id,current.client_id,data.clientId]
+      );
+    }
+
+    const oldProducts = [...currentProducts].sort().join(", ");
+    const newProducts = [...data.products].sort().join(", ");
+    if (oldProducts !== newProducts) {
+      await client.query(
+        "INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'PRODUCT_CHANGE',$3,$4)",
+        [data.id,user.id,oldProducts,newProducts]
+      );
+    }
+
+    await client.query(
+      "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'UPDATE_INCIDENT','incident',$2,$3::jsonb)",
+      [user.id,data.id,JSON.stringify({
+        clientId:data.clientId,
+        products:data.products,
+        status:data.status,
+        priority:data.priority,
+        analyst,
+        area,
+      })]
+    );
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  revalidatePath(`/incidents/${data.id}`);
+  revalidatePath("/incidents");
+  revalidatePath("/");
+  revalidatePath("/logbook");
+  revalidatePath("/history");
+}
+
+export async function deleteIncidentAction(formData: FormData) {
+  const user = await requireUser(["ADMIN"]);
+  const incidentId = text(formData, "incident_id");
+  const parsed = z.string().uuid().safeParse(incidentId);
+  if (!parsed.success) throw new Error("Incidente inválido para exclusão.");
+
+  const client = await getPool().connect();
+  let incidentTitle = "";
+  try {
+    await client.query("BEGIN");
+
+    const target = (await client.query<{
+      id:string;
+      title:string;
+      client_id:string;
+      status_code:string;
+      ticket_id:string|null;
+    }>(
+      "SELECT id,title,client_id,status_code,ticket_id FROM incidents WHERE id=$1 FOR UPDATE",
+      [incidentId]
+    )).rows[0];
+    if (!target) throw new Error("Incidente não encontrado.");
+
+    incidentTitle = target.title;
+
+    const products = (await client.query<{code:string}>(
+      `SELECT p.code
+       FROM incident_products ip
+       JOIN products p ON p.id=ip.product_id
+       WHERE ip.incident_id=$1
+       ORDER BY p.code`,
+      [incidentId]
+    )).rows.map(row=>row.code);
+
+    await client.query(
+      "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'DELETE_INCIDENT','incident',$2,$3::jsonb)",
+      [user.id,incidentId,JSON.stringify({
+        title:target.title,
+        clientId:target.client_id,
+        status:target.status_code,
+        ticketId:target.ticket_id,
+        products,
+        cascadeDeleted:["incident_products","incident_updates","ticket_responses"],
+      })]
+    );
+
+    await client.query("DELETE FROM incidents WHERE id=$1", [incidentId]);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  revalidatePath("/incidents");
+  revalidatePath("/");
+  revalidatePath("/logbook");
+  revalidatePath("/history");
+  revalidatePath("/responses");
+  redirect(`/incidents?deleted=${encodeURIComponent(incidentTitle)}`);
 }
 
 export async function addTicketResponseAction(formData: FormData) {
