@@ -761,34 +761,51 @@ export async function saveChecklistAction(formData: FormData) {
   const actor = await requireUser();
   const checklistDate = text(formData, "checklist_date");
   const requestedAnalystId = text(formData, "analyst_id");
-  const clientId = text(formData, "client_id");
+  const portfolioId = text(formData, "portfolio_id");
   const returnAction = text(formData, "return_action");
 
   const parsed = z.object({
     checklistDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     analystId: z.string().uuid(),
-    clientId: z.string().uuid(),
+    portfolioId: z.string().uuid(),
   }).safeParse({
     checklistDate,
     analystId: requestedAnalystId,
-    clientId,
+    portfolioId,
   });
 
-  if (!parsed.success) throw new Error("Analista, cliente ou data inválidos.");
+  if (!parsed.success) throw new Error("Analista, carteira ou data inválidos.");
 
   const analystId = requestedAnalystId;
-
   const target = (await query<{ id:string; active:boolean }>(
     "SELECT id, active FROM users WHERE id=$1 AND role='ANALYST'",
     [analystId]
   )).rows[0];
   if (!target?.active) throw new Error("Analista responsável não encontrado ou inativo.");
 
-  const targetClient = (await query<{ id:string }>(
-    "SELECT id FROM clients WHERE id=$1 AND active=TRUE",
-    [clientId]
+  const portfolio = (await query<{
+    id:string;
+    client_id:string;
+    product_id:string;
+    client_name:string;
+    product_code:string;
+  }>(
+    `SELECT
+       cp.id,
+       cp.client_id,
+       cp.product_id,
+       c.display_name AS client_name,
+       p.code AS product_code
+     FROM client_portfolios cp
+     JOIN clients c ON c.id=cp.client_id
+     JOIN products p ON p.id=cp.product_id
+     WHERE cp.id=$1
+       AND cp.active=TRUE
+       AND c.active=TRUE
+       AND p.active=TRUE`,
+    [portfolioId]
   )).rows[0];
-  if (!targetClient) throw new Error("Cliente não encontrado ou inativo.");
+  if (!portfolio) throw new Error("Carteira não encontrada ou inativa.");
 
   const visibleItems = CHECKLIST_ITEMS.filter(
     (item) => formData.get(`present_${item.key}`) === "1"
@@ -810,12 +827,13 @@ export async function saveChecklistAction(formData: FormData) {
     await client.query("BEGIN");
 
     const checklist = await client.query<{ id:string }>(
-      `INSERT INTO daily_checklists(checklist_date, analyst_id, client_id, created_by)
-       VALUES($1::date,$2,$3,$4)
-       ON CONFLICT(checklist_date, analyst_id, client_id)
+      `INSERT INTO daily_checklists(checklist_date, analyst_id, client_id, product_id, created_by)
+       VALUES($1::date,$2,$3,$4,$5)
+       ON CONFLICT(checklist_date, analyst_id, client_id, product_id)
+       WHERE product_id IS NOT NULL
        DO UPDATE SET updated_at=NOW()
        RETURNING id`,
-      [checklistDate, analystId, clientId, actor.id]
+      [checklistDate, analystId, portfolio.client_id, portfolio.product_id, actor.id]
     );
     checklistId = checklist.rows[0].id;
 
@@ -888,7 +906,11 @@ export async function saveChecklistAction(formData: FormData) {
       "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'SAVE_DAILY_CHECKLIST','daily_checklist',$2,$3::jsonb)",
       [actor.id, checklistId, JSON.stringify({
         analystId,
-        clientId,
+        portfolioId,
+        clientId:portfolio.client_id,
+        clientName:portfolio.client_name,
+        productId:portfolio.product_id,
+        productCode:portfolio.product_code,
         checklistDate,
         performedByUserId: actor.id,
         performedByName: actor.name,
@@ -911,7 +933,7 @@ export async function saveChecklistAction(formData: FormData) {
   revalidatePath("/checklist");
   revalidatePath("/");
   const actionParam = returnAction ? `&action=${encodeURIComponent(returnAction)}` : "";
-  redirect(`/checklist?date=${encodeURIComponent(checklistDate)}&analyst=${encodeURIComponent(analystId)}&client=${encodeURIComponent(clientId)}${actionParam}&saved=1`);
+  redirect(`/checklist?date=${encodeURIComponent(checklistDate)}&analyst=${encodeURIComponent(analystId)}&portfolio=${encodeURIComponent(portfolioId)}${actionParam}&saved=1`);
 }
 
 export async function createIncidentAction(formData: FormData) {
