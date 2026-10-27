@@ -1,5 +1,9 @@
+import { existsSync } from "node:fs";
 import sql from "mssql";
 import pg from "pg";
+
+if (existsSync(".env")) process.loadEnvFile(".env");
+if (existsSync(".env.local")) process.loadEnvFile(".env.local");
 
 const { Client } = pg;
 
