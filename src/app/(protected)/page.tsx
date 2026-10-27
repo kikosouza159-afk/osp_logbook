@@ -76,6 +76,10 @@ export default async function DashboardPage({
   const sp = await searchParams;
   const view = typeof sp.view === "string" ? sp.view : "operation";
   const checklistDate = typeof sp.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) ? sp.date : todaySaoPaulo();
+  const historyPeriodRaw = typeof sp.period === "string" ? Number(sp.period) : 7;
+  const historyPeriod = [7,15,30].includes(historyPeriodRaw) ? historyPeriodRaw : 7;
+  const historyAnalystFilter = typeof sp.hist_analyst === "string" ? sp.hist_analyst : "";
+  const historyClientFilter = typeof sp.hist_client === "string" ? sp.hist_client : "";
 
   const greeting = new Intl.DateTimeFormat("pt-BR", {
     timeZone:"America/Sao_Paulo",
