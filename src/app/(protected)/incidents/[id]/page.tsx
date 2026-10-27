@@ -2,26 +2,31 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink, Save, MessageSquarePlus } from "lucide-react";
 import { addTicketResponseAction, updateIncidentAction } from "@/app/actions";
-import { getAnalysts, getAreas, getIncident, getPriorities, getStatuses } from "@/lib/queries";
+import { getAnalysts, getAreas, getClients, getIncident, getPriorities, getProducts, getStatuses } from "@/lib/queries";
 import { StatusBadge } from "@/components/status-badge";
-import { formatDateTime } from "@/lib/format";
+import { clientOptionLabel, formatDateTime } from "@/lib/format";
 
 function localInput(value:string|null){ if(!value) return ""; const d=new Date(value); const p=(n:number)=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
 
 export default async function IncidentDetailPage({ params }: { params: Promise<{id:string}> }) {
   const {id}=await params;
-  const [data,statuses,priorities,analysts,areas]=await Promise.all([getIncident(id),getStatuses(),getPriorities(),getAnalysts(),getAreas()]);
+  const [data,statuses,priorities,analysts,areas,clients,products]=await Promise.all([
+    getIncident(id),getStatuses(),getPriorities(),getAnalysts(),getAreas(),getClients(),getProducts()
+  ]);
   if(!data) notFound();
   const i=data.incident;
+  const selectedProducts = new Set((i.products || "").split(",").map((value)=>value.trim()).filter(Boolean));
 
   return <>
     <div className="page-head"><div><Link href="/incidents" style={{fontSize:13,color:"var(--blue)"}}><ArrowLeft size={14} style={{verticalAlign:"middle"}}/> Incidentes</Link><h1 style={{marginTop:8}}>{i.title}</h1><p>{i.client_name} · {i.area_name||"Área não classificada"} · {i.products||"Sem produto"}</p></div><div style={{display:"flex",gap:8}}><StatusBadge code={i.priority_code}/><StatusBadge code={i.status_code} label={i.status_label}/></div></div>
 
     <div className="detail-grid">
       <section className="card detail-block"><h2 className="section-title" style={{marginTop:0}}>Dados do incidente</h2><form action={updateIncidentAction}><input type="hidden" name="id" value={i.id}/><div className="form-grid">
+        <div className="field"><label>Cliente *</label><select className="select" name="client_id" defaultValue={i.client_id} required>{clients.map(c=><option key={c.id} value={c.id}>{clientOptionLabel(c.display_name,c.products)}</option>)}</select></div>
+        <div className="field"><label>Área</label><select className="select" name="area" defaultValue={i.area_code||""}><option value="">Não classificada</option>{areas.map(a=><option key={a.code} value={a.code}>{a.name}</option>)}</select></div>
+        <div className="field full"><label>Produto *</label><div className="checks">{products.map(p=><label className="check" key={p.id}><input type="checkbox" name="products" value={p.code} defaultChecked={selectedProducts.has(p.code)}/>{p.name}</label>)}</div></div>
         <div className="field full"><label>Título</label><input className="input" name="title" defaultValue={i.title} required/></div>
         <div className="field full"><label>Descrição</label><textarea className="textarea" name="description" defaultValue={i.description} required/></div>
-        <div className="field"><label>Área</label><select className="select" name="area" defaultValue={i.area_code||""}><option value="">Não classificada</option>{areas.map(a=><option key={a.code} value={a.code}>{a.name}</option>)}</select></div>
         <div className="field"><label>Analista</label><select className="select" name="assigned_user_id" defaultValue={i.assigned_user_id||""}><option value="">Não atribuído</option>{analysts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
         <div className="field"><label>Prioridade</label><select className="select" name="priority" defaultValue={i.priority_code}>{priorities.map(p=><option key={p.code} value={p.code}>{p.label}</option>)}</select></div>
         <div className="field"><label>Status</label><select className="select" name="status" defaultValue={i.status_code}>{statuses.map(s=><option key={s.code} value={s.code}>{s.label}</option>)}</select></div>
