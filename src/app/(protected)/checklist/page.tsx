@@ -6,6 +6,8 @@ import { saveChecklistAction } from "@/app/actions";
 import { CHECKLIST_ACTIONS, CHECKLIST_ITEMS } from "@/lib/checklist";
 import { requireUser } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { formatDateTime } from "@/lib/format";
+import { ChecklistSuccessToast } from "@/components/checklist-success-toast";
 
 function todaySaoPaulo() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -19,7 +21,7 @@ function todaySaoPaulo() {
 }
 
 type Analyst = { id:string; name:string; username:string };
-type Client = { id:string; display_name:string };
+type Client = { id:string; display_name:string; primary_analyst_id:string|null; primary_analyst_name:string|null };
 type ItemStatus = "EM_VALIDACAO"|"COM_ERRO"|"CONCLUIDO";
 type ItemRow = {
   item_key:string;
@@ -28,6 +30,7 @@ type ItemRow = {
   observation:string|null;
   completed_at:string|null;
   updated_at:string;
+  updated_by_name:string|null;
 };
 
 const statusLabel: Record<ItemStatus,string> = {
@@ -41,7 +44,7 @@ export default async function ChecklistPage({
 }: {
   searchParams: Promise<Record<string,string|string[]|undefined>>;
 }) {
-  const user = await requireUser(["ADMIN","ANALYST"]);
+  const user = await requireUser();
   const sp = await searchParams;
   const get = (key:string) => typeof sp[key] === "string" ? String(sp[key]) : "";
 
@@ -49,27 +52,48 @@ export default async function ChecklistPage({
   const saved = get("saved") === "1";
   const selectedActionKey = get("action");
 
-  const analysts: Analyst[] = user.role === "ADMIN"
-    ? (await query<Analyst>(
-        "SELECT id,name,username FROM users WHERE role='ANALYST' AND active=TRUE ORDER BY name"
-      )).rows
-    : [{ id:user.id, name:user.name, username:user.username }];
-
-  const requestedAnalyst = get("analyst");
-  const selectedAnalyst = analysts.find(a => a.id === requestedAnalyst) ?? analysts[0] ?? null;
-
-  const clients: Client[] = selectedAnalyst
-    ? (await query<Client>(`
-        SELECT c.id,c.display_name
+  const [analystsRes,clientsRes] = await Promise.all([
+    query<Analyst>(
+      "SELECT id,name,username FROM users WHERE role='ANALYST' AND active=TRUE ORDER BY name"
+    ),
+    query<Client>(`
+      SELECT
+        c.id,
+        c.display_name,
+        primary_link.analyst_id AS primary_analyst_id,
+        primary_user.name AS primary_analyst_name
+      FROM clients c
+      LEFT JOIN LATERAL (
+        SELECT ac.analyst_id
         FROM analyst_clients ac
-        JOIN clients c ON c.id=ac.client_id
-        WHERE ac.analyst_id=$1 AND c.active=TRUE
-        ORDER BY ac.is_primary DESC,c.display_name
-      `, [selectedAnalyst.id])).rows
-    : [];
+        WHERE ac.client_id=c.id
+          AND ac.is_primary=TRUE
+        ORDER BY ac.created_at NULLS LAST,ac.analyst_id
+        LIMIT 1
+      ) primary_link ON TRUE
+      LEFT JOIN users primary_user ON primary_user.id=primary_link.analyst_id
+      WHERE c.active=TRUE
+      ORDER BY c.display_name
+    `)
+  ]);
+
+  const analysts = analystsRes.rows;
+  const clients = clientsRes.rows;
 
   const requestedClient = get("client");
-  const selectedClient = clients.find(c => c.id === requestedClient) ?? clients[0] ?? null;
+  const defaultClient = clients.find(client => client.primary_analyst_id === user.id) ?? clients[0] ?? null;
+  const selectedClient = clients.find(client => client.id === requestedClient) ?? defaultClient;
+
+  const requestedAnalyst = get("analyst");
+  const primaryAnalyst = selectedClient?.primary_analyst_id
+    ? analysts.find(analyst => analyst.id === selectedClient.primary_analyst_id)
+    : null;
+  const selectedAnalyst =
+    analysts.find(analyst => analyst.id === requestedAnalyst)
+    ?? primaryAnalyst
+    ?? analysts.find(analyst => analyst.id === user.id)
+    ?? analysts[0]
+    ?? null;
 
   let itemRows: ItemRow[] = [];
   if (selectedAnalyst && selectedClient) {
@@ -80,9 +104,11 @@ export default async function ChecklistPage({
         dci.completed,
         dci.observation,
         dci.completed_at::text,
-        dci.updated_at::text
+        dci.updated_at::text,
+        updater.name AS updated_by_name
       FROM daily_checklists dc
       JOIN daily_checklist_items dci ON dci.checklist_id=dc.id
+      LEFT JOIN users updater ON updater.id=dci.updated_by
       WHERE dc.checklist_date=$1::date
         AND dc.analyst_id=$2
         AND dc.client_id=$3
@@ -90,6 +116,13 @@ export default async function ChecklistPage({
   }
 
   const itemMap = new Map(itemRows.map(r => [r.item_key, r]));
+  const lastChange = itemRows.reduce<ItemRow|null>((latest,row) => {
+    if (!latest) return row;
+    return new Date(row.updated_at).getTime() > new Date(latest.updated_at).getTime() ? row : latest;
+  },null);
+  const selectedIsPrimary = Boolean(
+    selectedAnalyst && selectedClient && selectedClient.primary_analyst_id === selectedAnalyst.id
+  );
   const total = CHECKLIST_ITEMS.length;
   const completed = CHECKLIST_ITEMS.filter(i => itemMap.get(i.key)?.status === "CONCLUIDO").length;
   const validation = CHECKLIST_ITEMS.filter(i => itemMap.get(i.key)?.status === "EM_VALIDACAO").length;
@@ -113,14 +146,11 @@ export default async function ChecklistPage({
     <div className="page-head">
       <div>
         <h1>Checklist</h1>
-        <p>Validações editáveis ao longo do dia por analista, cliente e data.</p>
+        <p>Acesso compartilhado ao checklist, mantendo o analista principal como referência da carteira.</p>
       </div>
     </div>
 
-    {saved && <div className="password-success-banner">
-      <CheckCircle2 size={17}/>
-      <span>Checklist atualizado com sucesso. Você pode voltar e alterar os status durante o dia.</span>
-    </div>}
+    {saved && <ChecklistSuccessToast/>}
 
     <form className="card checklist-filters" method="get">
       <div className="field">
@@ -128,17 +158,19 @@ export default async function ChecklistPage({
         <input className="input" type="date" name="date" defaultValue={date}/>
       </div>
 
-      {user.role === "ADMIN" && <div className="field">
-        <label>Analista</label>
+      <div className="field">
+        <label>Responsável</label>
         <select className="select" name="analyst" defaultValue={selectedAnalyst?.id || ""}>
-          {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {analysts.map(a => <option key={a.id} value={a.id}>
+            {a.name}{selectedClient?.primary_analyst_id === a.id ? " • Principal" : ""}
+          </option>)}
         </select>
-      </div>}
+      </div>
 
       <div className="field">
         <label>Cliente</label>
         <select className="select" name="client" defaultValue={selectedClient?.id || ""}>
-          {clients.map(c => <option key={c.id} value={c.id}>{c.display_name}</option>)}
+          {clients.map(c => <option key={c.id} value={c.id}>{c.display_name}{c.primary_analyst_name ? ` • Principal: ${c.primary_analyst_name}` : ""}</option>)}
         </select>
       </div>
 
@@ -153,12 +185,16 @@ export default async function ChecklistPage({
       Cadastre ou ative um analista para começar.
     </section> : !selectedClient ? <section className="card empty">
       <strong>Nenhum cliente vinculado.</strong>
-      Vincule um cliente ao analista na aba Analistas para liberar o checklist.
+      Nenhum cliente ativo está disponível para o checklist.
     </section> : <>
       <div className="checklist-summary-grid">
         <div className="card checklist-summary-card">
           <div className="checklist-summary-icon"><UserRound size={18}/></div>
-          <div><span>Analista</span><strong>{selectedAnalyst.name}</strong></div>
+          <div>
+            <span>Responsável pelo checklist</span>
+            <strong>{selectedAnalyst.name}</strong>
+            {selectedIsPrimary && <small className="checklist-primary-label">Analista principal</small>}
+          </div>
         </div>
         <div className="card checklist-summary-card">
           <div className="checklist-summary-icon"><CalendarDays size={18}/></div>
@@ -177,6 +213,19 @@ export default async function ChecklistPage({
           <div className="checklist-progress-bar"><span style={{width:`${progress}%`}}/></div>
           <small>{completed}/{total} concluídos · {pending} pendente(s)</small>
         </div>
+      </div>
+
+      <div className="checklist-last-change">
+        <div className="checklist-last-change-icon"><UserRound size={16}/></div>
+        <div>
+          <span>Última alteração deste checklist</span>
+          {lastChange
+            ? <strong>{lastChange.updated_by_name || "Usuário não identificado"} · {formatDateTime(lastChange.updated_at)}</strong>
+            : <strong>Ainda não houve alteração nesta data.</strong>}
+        </div>
+        {selectedClient.primary_analyst_name && <small>
+          Principal da carteira: <b>{selectedClient.primary_analyst_name}</b>
+        </small>}
       </div>
 
       <section className="checklist-action-filter-section">
