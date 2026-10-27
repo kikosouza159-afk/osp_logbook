@@ -177,7 +177,7 @@ export async function getAnalysts() {
   `)).rows;
 }
 
-export async function getIncidents(filters: { q?: string; status?: string; client?: string; portfolio?: string; analyst?: string; product?: string; area?: string; date?: string; openOnly?: boolean } = {}, limit = 100) {
+export async function getIncidents(filters: { q?: string; status?: string; client?: string; portfolio?: string; analyst?: string; product?: string; area?: string; date?: string; openOnly?: boolean } = {}, limit: number | null = 100) {
   const where: string[] = [];
   const params: unknown[] = [];
   const add = (value: unknown) => { params.push(value); return `$${params.length}`; };
@@ -204,7 +204,7 @@ export async function getIncidents(filters: { q?: string; status?: string; clien
   if (filters.area) where.push(`i.area_code = ${add(filters.area)}`);
   if (filters.date) where.push(`(i.created_at AT TIME ZONE 'America/Sao_Paulo')::date = ${add(filters.date)}::date`);
   if (filters.openOnly) where.push(`s.is_closed=FALSE`);
-  params.push(limit);
+  const limitClause = limit === null ? "" : `LIMIT ${add(limit)}`;
 
   return (await query<{
     id: string; title: string; client_name: string; ticket_id: string | null; priority_code: string; status_code: string; status_label: string;
@@ -223,7 +223,7 @@ export async function getIncidents(filters: { q?: string; status?: string; clien
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     GROUP BY i.id, c.display_name, s.label, u.name, a.name
     ORDER BY i.created_at DESC
-    LIMIT $${params.length}
+    ${limitClause}
   `, params)).rows;
 }
 
