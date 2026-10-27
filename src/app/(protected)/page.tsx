@@ -54,8 +54,8 @@ function historyDayLabel(date:string) {
 
 type Analyst = { id:string; name:string };
 type Client = { id:string; display_name:string };
-type Assignment = { analyst_id:string; client_id:string };
-type ProgressRow = { analyst_id:string; client_id:string; completed:number; errors:number; validating:number; updated_at:string|null };
+type Assignment = { analyst_id:string; client_id:string; is_primary:boolean };
+type ProgressRow = { analyst_id:string; client_id:string; completed:number; errors:number; validating:number; updated_at:string|null; updated_by_name:string|null };
 type HistoryProgressRow = {
   checklist_date:string;
   analyst_id:string;
@@ -65,6 +65,7 @@ type HistoryProgressRow = {
   validating:number;
   recorded:number;
   updated_at:string|null;
+  updated_by_name:string|null;
 };
 
 export default async function DashboardPage({
@@ -89,16 +90,13 @@ export default async function DashboardPage({
   const hello = Number(greeting) < 12 ? "Bom dia" : Number(greeting) < 18 ? "Boa tarde" : "Boa noite";
 
   if (view === "checklist") {
-    const analystWhere = user.role === "ADMIN" ? "" : "AND u.id=$1";
-    const analystParams = user.role === "ADMIN" ? [] : [user.id];
-
     const [analystsRes, clientsRes, assignmentsRes, progressRes] = await Promise.all([
       query<Analyst>(`
         SELECT u.id,u.name
         FROM users u
-        WHERE u.active=TRUE AND u.role='ANALYST' ${analystWhere}
+        WHERE u.active=TRUE AND u.role='ANALYST'
         ORDER BY u.name
-      `, analystParams),
+      `),
       query<Client>(`
         SELECT id,display_name
         FROM clients
@@ -106,14 +104,13 @@ export default async function DashboardPage({
         ORDER BY display_name
       `),
       query<Assignment>(`
-        SELECT ac.analyst_id,ac.client_id
+        SELECT ac.analyst_id,ac.client_id,ac.is_primary
         FROM analyst_clients ac
         JOIN users u ON u.id=ac.analyst_id
         JOIN clients c ON c.id=ac.client_id
         WHERE u.active=TRUE AND c.active=TRUE
           AND u.role='ANALYST'
-          ${user.role === "ADMIN" ? "" : "AND ac.analyst_id=$1"}
-      `, analystParams),
+      `),
       query<ProgressRow>(`
         SELECT
           dc.analyst_id,
@@ -121,13 +118,15 @@ export default async function DashboardPage({
           COUNT(dci.id) FILTER (WHERE dci.status='CONCLUIDO')::int completed,
           COUNT(dci.id) FILTER (WHERE dci.status='COM_ERRO')::int errors,
           COUNT(dci.id) FILTER (WHERE dci.status='EM_VALIDACAO')::int validating,
-          MAX(dc.updated_at)::text updated_at
+          MAX(dci.updated_at)::text updated_at,
+          (ARRAY_AGG(updater.name ORDER BY dci.updated_at DESC)
+            FILTER (WHERE updater.name IS NOT NULL))[1] AS updated_by_name
         FROM daily_checklists dc
         LEFT JOIN daily_checklist_items dci ON dci.checklist_id=dc.id
+        LEFT JOIN users updater ON updater.id=dci.updated_by
         WHERE dc.checklist_date=$1::date
-          ${user.role === "ADMIN" ? "" : "AND dc.analyst_id=$2"}
         GROUP BY dc.analyst_id,dc.client_id
-      `, user.role === "ADMIN" ? [checklistDate] : [checklistDate,user.id]),
+      `, [checklistDate]),
     ]);
 
     const historyStart = shiftDate(checklistDate,-(historyPeriod-1));
@@ -140,16 +139,16 @@ export default async function DashboardPage({
         COUNT(dci.id) FILTER (WHERE dci.status='COM_ERRO')::int errors,
         COUNT(dci.id) FILTER (WHERE dci.status='EM_VALIDACAO')::int validating,
         COUNT(dci.id)::int recorded,
-        MAX(dc.updated_at)::text updated_at
+        MAX(dci.updated_at)::text updated_at,
+        (ARRAY_AGG(updater.name ORDER BY dci.updated_at DESC)
+          FILTER (WHERE updater.name IS NOT NULL))[1] AS updated_by_name
       FROM daily_checklists dc
       LEFT JOIN daily_checklist_items dci ON dci.checklist_id=dc.id
+      LEFT JOIN users updater ON updater.id=dci.updated_by
       WHERE dc.checklist_date BETWEEN $1::date AND $2::date
-        ${user.role === "ADMIN" ? "" : "AND dc.analyst_id=$3"}
       GROUP BY dc.checklist_date,dc.analyst_id,dc.client_id
       ORDER BY dc.checklist_date,dc.analyst_id,dc.client_id
-    `, user.role === "ADMIN"
-      ? [historyStart,checklistDate]
-      : [historyStart,checklistDate,user.id]
+    `, [historyStart,checklistDate]
     );
 
     const analysts = analystsRes.rows;
@@ -163,7 +162,8 @@ export default async function DashboardPage({
         completed:Number(r.completed || 0),
         errors:Number(r.errors || 0),
         validating:Number(r.validating || 0),
-        updated_at:r.updated_at
+        updated_at:r.updated_at,
+        updated_by_name:r.updated_by_name
       }
     ]));
 
@@ -180,6 +180,7 @@ export default async function DashboardPage({
         pct: totalItems ? Math.round((completed / totalItems) * 100) : 0,
         errorPct: totalItems ? Math.round((errors / totalItems) * 100) : 0,
         updated_at: row?.updated_at || null,
+        updated_by_name: row?.updated_by_name || null,
       };
     };
 
@@ -188,6 +189,7 @@ export default async function DashboardPage({
         .filter(c => assignmentSet.has(`${a.id}:${c.id}`))
         .map(c => ({
           ...c,
+          isPrimary: assignments.some(pair => pair.analyst_id===a.id && pair.client_id===c.id && pair.is_primary),
           progress: getPairProgress(a.id,c.id)!,
         }));
       const completedItems = linkedClients.reduce((sum,c) => sum + c.progress.completed,0);
@@ -227,7 +229,7 @@ export default async function DashboardPage({
     const overallCompletedItems = assignedPairs.reduce((sum,p) => sum + p.completed,0);
     const overallExpectedItems = assignments.length * totalItems;
     const overallPct = overallExpectedItems ? Math.round((overallCompletedItems / overallExpectedItems) * 100) : 0;
-    const started = assignedPairs.filter(p => p.pct > 0).length;
+    const started = assignedPairs.filter(p => p.completed > 0 || p.errors > 0 || p.validating > 0).length;
     const finished = assignedPairs.filter(p => p.pct === 100).length;
     const notStarted = Math.max(assignments.length - started,0);
     const historyDays = Array.from({length:historyPeriod},(_,index)=>shiftDate(historyStart,index));
@@ -260,6 +262,7 @@ export default async function DashboardPage({
         validating:Number(row.validating || 0),
         recorded:Number(row.recorded || 0),
         updated_at:row.updated_at,
+        updated_by_name:row.updated_by_name,
       }
     ]));
 
@@ -278,7 +281,7 @@ export default async function DashboardPage({
           : pct === 100
             ? "done"
             : "validating";
-      return {completed,errors,validating,recorded,pct,errorPct,state};
+      return {completed,errors,validating,recorded,pct,errorPct,state,updated_by_name:value?.updated_by_name || null};
     };
 
     const historyExpectedPerDay = historyPairs.length * totalItems;
@@ -444,7 +447,10 @@ export default async function DashboardPage({
                 >
                   <div className="analyst-client-main">
                     <div className="analyst-client-name">
-                      <strong>{client.display_name}</strong>
+                      <div className="analyst-client-title">
+                        <strong>{client.display_name}</strong>
+                        {client.isPrimary && <span className="client-primary-pill">Principal</span>}
+                      </div>
                       <span>{p.completed}/{totalItems} validações concluídas</span>
                     </div>
                     <b>{p.pct}%</b>
@@ -457,6 +463,7 @@ export default async function DashboardPage({
                       {p.pct === 100 ? "Concluído" : p.errors > 0 ? `${p.errors} com erro` : p.validating > 0 ? `${p.validating} em validação` : "Não iniciado"}
                     </span>
                     {p.errors > 0 && <span className="client-error-pill">{p.errorPct}% erro</span>}
+                    {p.updated_by_name && <span className="client-last-editor">Última: {p.updated_by_name} · {formatTime(p.updated_at)}</span>}
                     <span className="client-open">Abrir checklist <ArrowUpRight size={13}/></span>
                   </div>
                 </Link>;
@@ -524,13 +531,13 @@ export default async function DashboardPage({
                 className={`history-period-button ${historyPeriod===period ? "active" : ""}`}
               >{period} dias</button>)}
             </div>
-            {user.role === "ADMIN" && <label>
+            <label>
               <span>Analista</span>
               <select className="select" name="hist_analyst" defaultValue={validHistoryAnalyst}>
                 <option value="">Todos</option>
                 {analysts.map(analyst=><option key={analyst.id} value={analyst.id}>{analyst.name}</option>)}
               </select>
-            </label>}
+            </label>
             <label>
               <span>Cliente</span>
               <select className="select" name="hist_client" defaultValue={validHistoryClient}>
@@ -622,7 +629,7 @@ export default async function DashboardPage({
                   key={date}
                   className={`gantt-cell ${cell.state}`}
                   href={`/checklist?date=${date}&analyst=${pair.analyst_id}&client=${pair.client_id}`}
-                  title={`${pair.analyst.name} · ${pair.client.display_name} · ${label.day}\nConcluído: ${cell.pct}% (${cell.completed}/${totalItems})\nEm validação: ${cell.validating}\nCom erro: ${cell.errors}`}
+                  title={`${pair.analyst.name} · ${pair.client.display_name} · ${label.day}\nConcluído: ${cell.pct}% (${cell.completed}/${totalItems})\nEm validação: ${cell.validating}\nCom erro: ${cell.errors}\nÚltima alteração: ${cell.updated_by_name || "—"}`}
                 >
                   <span className="gantt-cell-percent">{cell.pct}%</span>
                   <span className="gantt-cell-bar"><i style={{width:`${cell.pct}%`}}/></span>
