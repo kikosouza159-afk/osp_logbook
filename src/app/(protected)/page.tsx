@@ -99,31 +99,36 @@ export default async function DashboardPage({
       `),
       query<Client>(`
         SELECT
-          c.id,
+          cp.id,
           c.display_name,
-          (
-            SELECT STRING_AGG(DISTINCT p.code, ', ' ORDER BY p.code)
-            FROM client_portfolios cp
-            JOIN products p ON p.id=cp.product_id
-            WHERE cp.client_id=c.id
-              AND cp.active=TRUE
-          ) AS products
-        FROM clients c
-        WHERE c.active=TRUE
-        ORDER BY c.display_name
+          p.code AS products
+        FROM client_portfolios cp
+        JOIN clients c ON c.id=cp.client_id
+        JOIN products p ON p.id=cp.product_id
+        WHERE cp.active=TRUE
+          AND c.active=TRUE
+          AND p.active=TRUE
+        ORDER BY c.display_name,p.code
       `),
       query<Assignment>(`
-        SELECT ac.analyst_id,ac.client_id,ac.is_primary
-        FROM analyst_clients ac
-        JOIN users u ON u.id=ac.analyst_id
-        JOIN clients c ON c.id=ac.client_id
-        WHERE u.active=TRUE AND c.active=TRUE
+        SELECT
+          cp.analyst_id,
+          cp.id AS client_id,
+          TRUE AS is_primary
+        FROM client_portfolios cp
+        JOIN users u ON u.id=cp.analyst_id
+        JOIN clients c ON c.id=cp.client_id
+        JOIN products p ON p.id=cp.product_id
+        WHERE cp.active=TRUE
+          AND c.active=TRUE
+          AND p.active=TRUE
+          AND u.active=TRUE
           AND u.role='ANALYST'
       `),
       query<ProgressRow>(`
         SELECT
           dc.analyst_id,
-          dc.client_id,
+          cp.id AS client_id,
           COUNT(dci.id) FILTER (WHERE dci.status='CONCLUIDO')::int completed,
           COUNT(dci.id) FILTER (WHERE dci.status='COM_ERRO')::int errors,
           COUNT(dci.id) FILTER (WHERE dci.status='EM_VALIDACAO')::int validating,
@@ -131,10 +136,14 @@ export default async function DashboardPage({
           (ARRAY_AGG(updater.name ORDER BY dci.updated_at DESC)
             FILTER (WHERE updater.name IS NOT NULL))[1] AS updated_by_name
         FROM daily_checklists dc
+        JOIN client_portfolios cp
+          ON cp.client_id=dc.client_id
+         AND cp.product_id=dc.product_id
+         AND cp.active=TRUE
         LEFT JOIN daily_checklist_items dci ON dci.checklist_id=dc.id
         LEFT JOIN users updater ON updater.id=dci.updated_by
         WHERE dc.checklist_date=$1::date
-        GROUP BY dc.analyst_id,dc.client_id
+        GROUP BY dc.analyst_id,cp.id
       `, [checklistDate]),
     ]);
 
@@ -143,7 +152,7 @@ export default async function DashboardPage({
       SELECT
         dc.checklist_date::text,
         dc.analyst_id,
-        dc.client_id,
+        cp.id AS client_id,
         COUNT(dci.id) FILTER (WHERE dci.status='CONCLUIDO')::int completed,
         COUNT(dci.id) FILTER (WHERE dci.status='COM_ERRO')::int errors,
         COUNT(dci.id) FILTER (WHERE dci.status='EM_VALIDACAO')::int validating,
@@ -152,11 +161,15 @@ export default async function DashboardPage({
         (ARRAY_AGG(updater.name ORDER BY dci.updated_at DESC)
           FILTER (WHERE updater.name IS NOT NULL))[1] AS updated_by_name
       FROM daily_checklists dc
+      JOIN client_portfolios cp
+        ON cp.client_id=dc.client_id
+       AND cp.product_id=dc.product_id
+       AND cp.active=TRUE
       LEFT JOIN daily_checklist_items dci ON dci.checklist_id=dc.id
       LEFT JOIN users updater ON updater.id=dci.updated_by
       WHERE dc.checklist_date BETWEEN $1::date AND $2::date
-      GROUP BY dc.checklist_date,dc.analyst_id,dc.client_id
-      ORDER BY dc.checklist_date,dc.analyst_id,dc.client_id
+      GROUP BY dc.checklist_date,dc.analyst_id,cp.id
+      ORDER BY dc.checklist_date,dc.analyst_id,cp.id
     `, [historyStart,checklistDate]
     );
 
@@ -319,7 +332,7 @@ export default async function DashboardPage({
       <div className="page-head">
         <div>
           <h1>{hello}, {user.name.split(" ")[0]}.</h1>
-          <p>Acompanhamento visual do checklist operacional por analista e cliente.</p>
+          <p>Acompanhamento visual do checklist operacional por analista e carteira.</p>
         </div>
         <div style={{display:"flex",gap:10}}>
           <Link className="btn btn-secondary" href={`/?view=checklist&date=${checklistDate}`}><RefreshCw size={16}/> Atualizar</Link>
@@ -356,7 +369,7 @@ export default async function DashboardPage({
         </article>
         <article className="card checklist-dashboard-kpi">
           <span className="checklist-dashboard-kpi-icon"><Building2 size={18}/></span>
-          <div><small>Clientes</small><strong>{clients.length}</strong><span>ativos no painel</span></div>
+          <div><small>Carteiras</small><strong>{clients.length}</strong><span>cliente + produto ativos</span></div>
         </article>
         <article className="card checklist-dashboard-kpi">
           <span className="checklist-dashboard-kpi-icon"><Clock3 size={18}/></span>
@@ -370,13 +383,13 @@ export default async function DashboardPage({
 
       <section className="card checklist-ranking-panel checklist-ranking-wide">
         <div className="panel-title">
-          <div><h2>Progresso por cliente</h2><p>Consolidação do checklist entre os analistas vinculados.</p></div>
-          <span className="badge">{clients.length} cliente(s)</span>
+          <div><h2>Progresso por carteira</h2><p>Cada cliente + produto é acompanhado separadamente.</p></div>
+          <span className="badge">{clients.length} carteira(s)</span>
         </div>
         <div className="checklist-ranking-list checklist-client-ranking-list">
           {clientSummary.map(c => <div className="checklist-ranking-row" key={c.id}>
             <div className="checklist-ranking-meta">
-              <strong>{c.display_name}</strong>
+              <strong>{clientOptionLabel(c.display_name,c.products)}</strong>
               <span>{c.linked ? `${c.completedAnalysts}/${c.linked} analista(s) em 100%` : "Sem analista vinculado"}</span>
             </div>
             <div className="checklist-ranking-bar"><span style={{width:`${c.pct}%`}}/></div>
@@ -406,7 +419,7 @@ export default async function DashboardPage({
               <div className="analyst-progress-identity">
                 <span>Analista</span>
                 <h3>{a.name}</h3>
-                <small>{a.linked} cliente(s) vinculado(s)</small>
+                <small>{a.linked} carteira(s) vinculada(s)</small>
               </div>
               <div className="analyst-progress-total">
                 <strong>{a.pct}%</strong>
@@ -439,7 +452,7 @@ export default async function DashboardPage({
 
             <div className="analyst-client-list-head">
               <div>
-                <strong>Clientes associados</strong>
+                <strong>Carteiras associadas</strong>
                 <span>{a.completedClients}/{a.linked} concluídos em 100%</span>
               </div>
             </div>
@@ -451,13 +464,13 @@ export default async function DashboardPage({
                 return <Link
                   key={client.id}
                   className={`analyst-client-row ${state}`}
-                  href={`/checklist?date=${checklistDate}&analyst=${a.id}&client=${client.id}`}
-                  title={`Abrir checklist de ${client.display_name}`}
+                  href={`/checklist?date=${checklistDate}&analyst=${a.id}&portfolio=${client.id}`}
+                  title={`Abrir checklist de ${clientOptionLabel(client.display_name,client.products)}`}
                 >
                   <div className="analyst-client-main">
                     <div className="analyst-client-name">
                       <div className="analyst-client-title">
-                        <strong>{client.display_name}</strong>
+                        <strong>{clientOptionLabel(client.display_name,client.products)}</strong>
                         {client.isPrimary && <span className="client-primary-pill">Principal</span>}
                       </div>
                       <span>{p.completed}/{totalItems} validações concluídas</span>
@@ -477,7 +490,7 @@ export default async function DashboardPage({
                   </div>
                 </Link>;
               })}
-              {!a.clients.length && <div className="analyst-client-empty">Nenhum cliente vinculado a este analista.</div>}
+              {!a.clients.length && <div className="analyst-client-empty">Nenhuma carteira vinculada a este analista.</div>}
             </div>
           </article>)}
 
@@ -506,9 +519,9 @@ export default async function DashboardPage({
             .map(item => <Link
               key={`${item!.analyst.id}:${item!.client.id}`}
               className="checklist-attention-card"
-              href={`/checklist?date=${checklistDate}&analyst=${item!.analyst.id}&client=${item!.client.id}`}
+              href={`/checklist?date=${checklistDate}&analyst=${item!.analyst.id}&portfolio=${item!.client.id}`}
             >
-              <div><strong>{item!.client.display_name}</strong><span>{item!.analyst.name}</span></div>
+              <div><strong>{clientOptionLabel(item!.client.display_name,item!.client.products)}</strong><span>{item!.analyst.name}</span></div>
               <div className="checklist-attention-progress"><i style={{width:`${item!.progress.pct}%`}}/></div>
               <b>{item!.progress.pct}%</b>
               <ArrowUpRight size={15}/>
@@ -575,9 +588,9 @@ export default async function DashboardPage({
             <small>ocorrências no período</small>
           </div>
           <div className="history-kpi">
-            <span>Clientes monitorados</span>
+            <span>Carteiras monitoradas</span>
             <strong>{historyClientsMonitored}</strong>
-            <small>com registro no período</small>
+            <small>cliente + produto com registro</small>
           </div>
         </div>
 
@@ -612,7 +625,7 @@ export default async function DashboardPage({
         <div className="checklist-gantt-wrap">
           <div className="checklist-gantt-grid" style={{gridTemplateColumns:`260px repeat(${historyDays.length},78px)`}}>
             <div className="gantt-corner">
-              <strong>Analista / Cliente</strong>
+              <strong>Analista / Carteira</strong>
               <span>{historyStart.split("-").reverse().join("/")} → {checklistDate.split("-").reverse().join("/")}</span>
             </div>
             {historyDays.map(date=>{
@@ -627,7 +640,7 @@ export default async function DashboardPage({
               <div className="gantt-row-label">
                 <HeaderUserAvatar userId={pair.analyst.id} name={pair.analyst.name} variant="analyst-card"/>
                 <div>
-                  <strong>{pair.client.display_name}</strong>
+                  <strong>{clientOptionLabel(pair.client.display_name,pair.client.products)}</strong>
                   <span>{pair.analyst.name}</span>
                 </div>
               </div>
@@ -637,8 +650,8 @@ export default async function DashboardPage({
                 return <Link
                   key={date}
                   className={`gantt-cell ${cell.state}`}
-                  href={`/checklist?date=${date}&analyst=${pair.analyst_id}&client=${pair.client_id}`}
-                  title={`${pair.analyst.name} · ${pair.client.display_name} · ${label.day}\nConcluído: ${cell.pct}% (${cell.completed}/${totalItems})\nEm validação: ${cell.validating}\nCom erro: ${cell.errors}\nÚltima alteração: ${cell.updated_by_name || "—"}`}
+                  href={`/checklist?date=${date}&analyst=${pair.analyst_id}&portfolio=${pair.client_id}`}
+                  title={`${pair.analyst.name} · ${clientOptionLabel(pair.client.display_name,pair.client.products)} · ${label.day}\nConcluído: ${cell.pct}% (${cell.completed}/${totalItems})\nEm validação: ${cell.validating}\nCom erro: ${cell.errors}\nÚltima alteração: ${cell.updated_by_name || "—"}`}
                 >
                   <span className="gantt-cell-percent">{cell.pct}%</span>
                   <span className="gantt-cell-bar"><i style={{width:`${cell.pct}%`}}/></span>
