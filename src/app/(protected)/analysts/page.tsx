@@ -1,10 +1,9 @@
 import { Crown, KeyRound, Link2, PencilLine, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
 import { adminUpdateUserPasswordAction, adminUpdateUserProfileAction, assignAnalystClientAction, createAnalystAction, uploadAnalystPhotoAction } from "@/app/actions";
-import { getAnalysts, getClients } from "@/lib/queries";
+import { getAnalysts, getClientPortfolios } from "@/lib/queries";
 import { query } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { AnalystPhotoUploader } from "@/components/analyst-photo-uploader";
-import { clientOptionLabel } from "@/lib/format";
 
 function initials(name:string) {
   return name.split(" ").filter(Boolean).slice(0,2).map(p=>p[0]?.toUpperCase()).join("");
@@ -17,16 +16,21 @@ export default async function AnalystsPage({ searchParams }: { searchParams: Pro
   const userUpdated = typeof sp.user_updated === "string" ? sp.user_updated : "";
   const initialPassword = process.env.ANALYST_INITIAL_PASSWORD || "Não configurada";
 
-  const [analysts,clients,links]=await Promise.all([
+  const [analysts,portfolios,links]=await Promise.all([
     getAnalysts(),
-    getClients(),
-    query<{analyst_name:string;client_name:string;is_primary:boolean}>(
-      `SELECT u.name analyst_name,c.display_name client_name,ac.is_primary
-       FROM analyst_clients ac
-       JOIN users u ON u.id=ac.analyst_id
-       JOIN clients c ON c.id=ac.client_id
+    getClientPortfolios(),
+    query<{analyst_name:string;client_name:string;product_code:string}>(
+      `SELECT
+         u.name analyst_name,
+         c.display_name client_name,
+         p.code product_code
+       FROM client_portfolios cp
+       JOIN users u ON u.id=cp.analyst_id
+       JOIN clients c ON c.id=cp.client_id
+       JOIN products p ON p.id=cp.product_id
        WHERE c.active=TRUE
-       ORDER BY u.name,c.display_name`
+         AND cp.active=TRUE
+       ORDER BY u.name,c.display_name,p.code`
     )
   ]);
 
@@ -215,15 +219,12 @@ export default async function AnalystsPage({ searchParams }: { searchParams: Pro
             </select>
           </div>
           <div className="field" style={{marginTop:12}}>
-            <label>Cliente</label>
-            <select className="select" name="client_id" required>
+            <label>Cliente / Produto</label>
+            <select className="select" name="portfolio_id" required>
               <option value="">Selecione</option>
-              {clients.map(c=><option key={c.id} value={c.id}>{clientOptionLabel(c.display_name,c.products)}</option>)}
+              {portfolios.map(portfolio=><option key={portfolio.id} value={portfolio.id}>{portfolio.client_name} · {portfolio.product_code}</option>)}
             </select>
           </div>
-          <label className="check" style={{width:"fit-content",marginTop:12}}>
-            <input type="checkbox" name="is_primary"/> Analista principal do cliente
-          </label>
           <button className="btn btn-primary" style={{marginTop:18}}><Link2 size={16}/> Associar</button>
         </form>
       </section>
@@ -241,12 +242,12 @@ export default async function AnalystsPage({ searchParams }: { searchParams: Pro
       </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Analista</th><th>Cliente</th><th>Principal</th></tr></thead>
+          <thead><tr><th>Analista</th><th>Cliente</th><th>Produto</th></tr></thead>
           <tbody>
-            {links.rows.map((l,idx)=><tr key={`${l.analyst_name}-${l.client_name}-${idx}`}>
+            {links.rows.map((l,idx)=><tr key={`${l.analyst_name}-${l.client_name}-${l.product_code}-${idx}`}>
               <td><strong>{l.analyst_name}</strong></td>
               <td>{l.client_name}</td>
-              <td>{l.is_primary?<span className="badge RESOLVIDO">Sim</span>:"Não"}</td>
+              <td><span className={`badge client-product ${l.product_code.toLowerCase()}`}>{l.product_code}</span></td>
             </tr>)}
           </tbody>
         </table>
