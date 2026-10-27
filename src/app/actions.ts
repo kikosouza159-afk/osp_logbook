@@ -102,7 +102,7 @@ async function resolvePortfolioAnalyst(client: import("pg").PoolClient, value:st
 
 async function upsertClientPortfolio(
   client: import("pg").PoolClient,
-  data:{clientName:string; analystName:string; productCode:string; commercialName:string}
+  data:{clientName:string; analystName:string; productCode:string; commercialName?:string}
 ) {
   const clientName = data.clientName.replace(/\u00a0/g," ").replace(/\s+/g," ").trim();
   const productCode = normalizePortfolioValue(data.productCode) === "ada" ? "ADA"
