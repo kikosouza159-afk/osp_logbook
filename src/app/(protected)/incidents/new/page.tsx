@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, Save, Target, RadioTower, FlaskConical, Code2, MessagesSquare, Layers3 } from "lucide-react";
 import { createIncidentAction } from "@/app/actions";
-import { getAnalysts, getAreas, getClients, getPriorities, getProducts, getStatuses } from "@/lib/queries";
-import { clientOptionLabel } from "@/lib/format";
+import { getAnalysts, getAreas, getClientPortfolios, getPriorities, getStatuses } from "@/lib/queries";
 
 const areaIcons = {
   OSP: Target,
@@ -13,14 +12,14 @@ const areaIcons = {
 } as const;
 
 export default async function NewIncidentPage() {
-  const [clients,products,priorities,statuses,analysts,areas]=await Promise.all([
-    getClients(),getProducts(),getPriorities(),getStatuses(),getAnalysts(),getAreas()
+  const [portfolios,priorities,statuses,analysts,areas]=await Promise.all([
+    getClientPortfolios(),getPriorities(),getStatuses(),getAnalysts(),getAreas()
   ]);
 
   return <>
     <div className="page-head"><div><h1>Novo registro</h1><p>Inclua um novo ponto no diário de bordo operacional.</p></div><Link className="btn btn-secondary" href="/incidents"><ArrowLeft size={16}/> Voltar</Link></div>
     <form action={createIncidentAction} className="card form-card"><div className="form-grid">
-      <div className="field"><label>Cliente *</label><select className="select" name="client_id" required><option value="">Selecione</option>{clients.map(c=><option value={c.id} key={c.id}>{clientOptionLabel(c.display_name,c.products)}</option>)}</select></div>
+      <div className="field"><label>Cliente / Produto *</label><select className="select" name="portfolio_id" required><option value="">Selecione</option>{portfolios.map(portfolio=><option value={portfolio.id} key={portfolio.id}>{portfolio.client_name} · {portfolio.product_code}{portfolio.analyst_name ? ` • Principal: ${portfolio.analyst_name}` : ""}</option>)}</select></div>
       <div className="field"><label>Analista responsável</label><select className="select" name="assigned_user_id"><option value="">Não atribuído</option>{analysts.filter(a=>a.active).map(a=><option value={a.id} key={a.id}>{a.name}</option>)}</select></div>
 
       <div className="field full">
@@ -37,7 +36,6 @@ export default async function NewIncidentPage() {
         </div>
       </div>
 
-      <div className="field full"><label>Produto *</label><div className="checks">{products.map(p=><label className="check" key={p.id}><input type="checkbox" name="products" value={p.code}/>{p.name}</label>)}</div></div>
       <div className="field full"><label>Título do incidente *</label><input className="input" name="title" required placeholder="Ex.: Falha na consulta de débito"/></div>
       <div className="field full"><label>Descrição do problema *</label><textarea className="textarea" name="description" required placeholder="Descreva o comportamento observado, impacto e contexto..."/></div>
       <div className="field"><label>Prioridade *</label><select className="select" name="priority" defaultValue="MEDIA">{priorities.map(p=><option value={p.code} key={p.code}>{p.label}</option>)}</select></div>
