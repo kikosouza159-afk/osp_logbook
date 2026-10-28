@@ -476,7 +476,7 @@ export async function setClientPortfolioStatusAction(formData: FormData) {
          SET active=$2,
              inactive_reason_code=CASE WHEN $2 THEN NULL ELSE $3 END,
              deactivated_at=CASE WHEN $2 THEN NULL ELSE NOW() END,
-             deactivated_by=CASE WHEN $2 THEN NULL ELSE $4 END,
+             deactivated_by=CASE WHEN $2 THEN NULL::uuid ELSE $4::uuid END,
              updated_at=NOW()
          WHERE id=$1`,
         [portfolioId,targetActive,targetActive ? null : reasonCode,actor.id]
@@ -485,7 +485,7 @@ export async function setClientPortfolioStatusAction(formData: FormData) {
       await client.query(
         `INSERT INTO client_portfolio_status_history(
            portfolio_id,previous_active,new_active,reason_code,changed_by
-         ) VALUES($1,$2,$3,$4,$5)`,
+         ) VALUES($1::uuid,$2,$3,$4,$5::uuid)`,
         [portfolioId,current.active,targetActive,targetActive ? null : reasonCode,actor.id]
       );
 
