@@ -1,11 +1,15 @@
 import Link from "next/link";
 import {
-  BriefcaseBusiness, Building2, ClipboardPaste, Layers3, PencilLine, Plus, Save, Upload, UsersRound, X
+  Activity, BriefcaseBusiness, Building2, CirclePause, ClipboardCheck, ClipboardPaste, Layers3, PencilLine, Plus, Save, Upload, UsersRound, X
 } from "lucide-react";
 import { bulkUpsertClientsAction, createClientAction, updateClientPortfolioAction } from "@/app/actions";
 import { getAnalysts, getClientPortfolios, getCommercials, getProducts } from "@/lib/queries";
 import { requireUser } from "@/lib/auth";
 import { DeleteClientButton } from "@/components/delete-client-button";
+import { ClientPortfolioStatusButton } from "@/components/client-portfolio-status-button";
+import { clientPortfolioInactiveReasonLabel } from "@/lib/client-portfolio-status";
+import { query } from "@/lib/db";
+import { CHECKLIST_ITEMS } from "@/lib/checklist";
 
 function analystLabel(username:string,name:string) {
   const aliases:Record<string,string> = {
@@ -39,10 +43,13 @@ export default async function ClientsPage({
   const bulkSaved = typeof sp.bulk_saved === "string" ? Number(sp.bulk_saved) : 0;
   const deleted = typeof sp.deleted === "string" ? sp.deleted : "";
   const updated = typeof sp.updated === "string" ? sp.updated : "";
+  const statusChanged = typeof sp.status_changed === "string" ? sp.status_changed : "";
+  const statusProduct = typeof sp.product === "string" ? sp.product : "";
+  const statusActive = sp.active === "1";
   const editId = typeof sp.edit === "string" ? sp.edit : "";
 
   const [portfolios,products,commercials,analysts]=await Promise.all([
-    getClientPortfolios(),
+    getClientPortfolios(true),
     getProducts(),
     getCommercials(),
     getAnalysts(),
@@ -52,9 +59,27 @@ export default async function ClientsPage({
   const editingPortfolio = user.role === "ADMIN" && editId
     ? portfolios.find(p=>p.id===editId)
     : undefined;
-  const locator = portfolios.filter(p=>p.product_code==="LOCATOR" && p.active).length;
-  const ada = portfolios.filter(p=>p.product_code==="ADA" && p.active).length;
-  const withoutCommercial = portfolios.filter(p=>p.active && !p.commercial_name).length;
+  const activePortfolios = portfolios.filter(p=>p.active);
+  const inactivePortfolios = portfolios.filter(p=>!p.active);
+  const locator = activePortfolios.filter(p=>p.product_code==="LOCATOR").length;
+  const ada = activePortfolios.filter(p=>p.product_code==="ADA").length;
+  const withoutCommercial = activePortfolios.filter(p=>!p.commercial_name).length;
+  const checklistEligible = activePortfolios.filter(p=>p.analyst_id).length;
+  const checklistCompleted = (await query<{completed:number}>(`
+    SELECT COUNT(dci.id) FILTER (WHERE dci.status='CONCLUIDO')::int AS completed
+    FROM client_portfolios cp
+    JOIN clients c ON c.id=cp.client_id AND c.active=TRUE
+    LEFT JOIN daily_checklists dc
+      ON dc.client_id=cp.client_id
+     AND dc.product_id=cp.product_id
+     AND dc.analyst_id=cp.analyst_id
+     AND dc.checklist_date=(NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+    LEFT JOIN daily_checklist_items dci ON dci.checklist_id=dc.id
+    WHERE cp.active=TRUE
+      AND cp.analyst_id IS NOT NULL
+  `)).rows[0]?.completed ?? 0;
+  const checklistExpected = checklistEligible * CHECKLIST_ITEMS.length;
+  const checklistPct = checklistExpected ? Math.round((checklistCompleted/checklistExpected)*100) : 0;
 
   return <>
     <div className="page-head">
@@ -76,6 +101,12 @@ export default async function ClientsPage({
     {updated && <div className="password-success-banner">
       <span>Cliente <strong>{updated}</strong> atualizado com sucesso.</span>
     </div>}
+    {statusChanged && <div className="password-success-banner">
+      <span>
+        <strong>{statusChanged} · {statusProduct}</strong> foi {statusActive ? "reativado" : "desativado"}.
+        {!statusActive && " A carteira saiu do cálculo do Checklist enquanto estiver inativa."}
+      </span>
+    </div>}
 
     <div className="client-kpi-grid">
       <article className="card client-kpi">
@@ -95,6 +126,28 @@ export default async function ClientsPage({
         <div><small>Sem comercial</small><strong>{withoutCommercial}</strong><span>aguardando definição</span></div>
       </article>
     </div>
+
+    <section className="card client-operational-status">
+      <div className="client-operational-status-copy">
+        <span className="client-status-eyebrow">Base operacional do Checklist</span>
+        <strong>Somente carteiras ativas entram no percentual consolidado.</strong>
+        <p>Ao desativar uma carteira, ela permanece na Matriz e no histórico, mas sai do denominador do Checklist até ser reativada.</p>
+      </div>
+      <div className="client-operational-status-metrics">
+        <div className="client-status-metric active">
+          <span className="client-status-icon"><Activity size={16}/></span>
+          <div><small>Ativas</small><strong>{activePortfolios.length}</strong></div>
+        </div>
+        <div className="client-status-metric inactive">
+          <span className="client-status-icon"><CirclePause size={16}/></span>
+          <div><small>Inativas</small><strong>{inactivePortfolios.length}</strong></div>
+        </div>
+        <div className="client-status-metric checklist">
+          <span className="client-status-icon"><ClipboardCheck size={16}/></span>
+          <div><small>Checklist hoje</small><strong>{checklistPct}%</strong><span>{checklistEligible} carteira(s) no denominador</span></div>
+        </div>
+      </div>
+    </section>
 
     <div className="client-admin-grid">
       <section id="client-editor" className={`card form-card client-single-card${editingPortfolio ? " is-editing" : ""}`}>
@@ -202,9 +255,12 @@ export default async function ClientsPage({
         <div className="panel-title">
           <div>
             <h2>Matriz de clientes</h2>
-            <p>Uma linha por combinação de cliente e produto.</p>
+            <p>Uma linha por combinação de cliente e produto, incluindo carteiras ativas e inativas.</p>
           </div>
-          <span className="badge">{portfolios.length} carteira(s)</span>
+          <div className="client-matrix-counts">
+            <span className="badge RESOLVIDO">{activePortfolios.length} ativa(s)</span>
+            <span className="badge client-status-inactive">{inactivePortfolios.length} inativa(s)</span>
+          </div>
         </div>
       </div>
 
@@ -217,6 +273,7 @@ export default async function ClientsPage({
               <th>Produto</th>
               <th>Comercial</th>
               <th>Status</th>
+              <th>Motivo / Paralisação</th>
               {user.role === "ADMIN" && <th>Ações</th>}
             </tr>
           </thead>
@@ -226,7 +283,21 @@ export default async function ClientsPage({
               <td>{analystShort(p.analyst_name)}</td>
               <td><span className={`badge client-product ${p.product_code.toLowerCase()}`}>{p.product_name}</span></td>
               <td>{p.commercial_name || <span className="client-empty-value">Não definido</span>}</td>
-              <td>{p.active ? <span className="badge RESOLVIDO">Ativo</span> : <span className="badge">Inativo</span>}</td>
+              <td>{p.active
+                ? <span className="badge RESOLVIDO">Ativo</span>
+                : <span className="badge client-status-inactive">Inativo</span>}
+              </td>
+              <td>
+                {p.active
+                  ? <span className="client-empty-value">Em operação</span>
+                  : <div className="client-inactive-reason">
+                      <strong>{clientPortfolioInactiveReasonLabel(p.inactive_reason_code) || "Motivo não informado"}</strong>
+                      {p.deactivated_at && <small>
+                        {new Intl.DateTimeFormat("pt-BR",{timeZone:"America/Sao_Paulo",day:"2-digit",month:"2-digit",year:"numeric"}).format(new Date(p.deactivated_at))}
+                        {p.deactivated_by_name ? ` · ${p.deactivated_by_name}` : ""}
+                      </small>}
+                    </div>}
+              </td>
               {user.role === "ADMIN" && <td className="client-actions-cell">
                 <div className="client-row-actions">
                   <Link
@@ -237,6 +308,12 @@ export default async function ClientsPage({
                     <PencilLine size={14}/>
                     Editar
                   </Link>
+                  <ClientPortfolioStatusButton
+                    portfolioId={p.id}
+                    clientName={p.client_name}
+                    productCode={p.product_code}
+                    active={p.active}
+                  />
                   <DeleteClientButton clientId={p.client_id} clientName={p.client_name}/>
                 </div>
               </td>}
