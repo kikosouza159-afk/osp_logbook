@@ -5054,3 +5054,64 @@ html[data-theme="dark"] .portfolio-status-warning {
   }
   .portfolio-status-modal-actions .btn { width:100%; }
 }
+
+
+/* Client matrix status filter */
+.client-matrix-toolbar {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.client-status-filter {
+  display:inline-flex;
+  align-items:center;
+  gap:3px;
+  padding:3px;
+  border:1px solid #E4E8EF;
+  border-radius:10px;
+  background:#F7F9FC;
+}
+.client-status-filter a {
+  min-height:28px;
+  padding:6px 9px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:7px;
+  color:#7A8190;
+  font-size:8px;
+  font-weight:900;
+  letter-spacing:.03em;
+}
+.client-status-filter a:hover {
+  color:var(--navy);
+  background:#EEF2F7;
+}
+.client-status-filter a.active {
+  background:var(--navy);
+  color:#fff;
+  box-shadow:0 5px 12px rgba(0,0,73,.15);
+}
+html[data-theme="dark"] .client-status-filter {
+  background:#17172D;
+  border-color:#303048;
+}
+html[data-theme="dark"] .client-status-filter a {
+  color:#AEB3C4;
+}
+html[data-theme="dark"] .client-status-filter a:hover {
+  background:#202039;
+  color:#fff;
+}
+html[data-theme="dark"] .client-status-filter a.active {
+  background:#34345A;
+  color:#fff;
+}
+@media(max-width:650px){
+  .client-matrix-toolbar {
+    width:100%;
+    align-items:flex-start;
+    flex-direction:column;
+  }
+}
