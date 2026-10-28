@@ -165,7 +165,6 @@ async function upsertClientPortfolio(
      DO UPDATE SET
        analyst_id=EXCLUDED.analyst_id,
        commercial_id=EXCLUDED.commercial_id,
-       active=TRUE,
        updated_at=NOW()`,
     [target.id,product.id,analystId,commercialId]
   );
