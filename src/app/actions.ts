@@ -425,7 +425,7 @@ export async function updateClientPortfolioAction(formData: FormData) {
 }
 
 export async function setClientPortfolioStatusAction(formData: FormData) {
-  const actor = await requireUser(["ADMIN"]);
+  const actor = await requireUser();
   const portfolioId = text(formData,"portfolio_id");
   const targetActive = text(formData,"target_active") === "true";
   const reasonCode = text(formData,"inactive_reason_code");
