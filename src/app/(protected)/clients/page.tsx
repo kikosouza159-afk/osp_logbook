@@ -287,7 +287,7 @@ export default async function ClientsPage({
               <th>Comercial</th>
               <th>Status</th>
               <th>Motivo / Paralisação</th>
-              {user.role === "ADMIN" && <th>Ações</th>}
+              <th>Ações</th>
             </tr>
           </thead>
           <tbody>
@@ -311,25 +311,25 @@ export default async function ClientsPage({
                       </small>}
                     </div>}
               </td>
-              {user.role === "ADMIN" && <td className="client-actions-cell">
+              <td className="client-actions-cell">
                 <div className="client-row-actions">
-                  <Link
+                  {user.role === "ADMIN" && <Link
                     className="btn client-edit-btn"
                     href={`/clients?edit=${encodeURIComponent(p.id)}#client-editor`}
                     title={`Editar ${p.client_name}`}
                   >
                     <PencilLine size={14}/>
                     Editar
-                  </Link>
+                  </Link>}
                   <ClientPortfolioStatusButton
                     portfolioId={p.id}
                     clientName={p.client_name}
                     productCode={p.product_code}
                     active={p.active}
                   />
-                  <DeleteClientButton clientId={p.client_id} clientName={p.client_name}/>
+                  {user.role === "ADMIN" && <DeleteClientButton clientId={p.client_id} clientName={p.client_name}/>}
                 </div>
-              </td>}
+              </td>
             </tr>)}
           </tbody>
         </table>
