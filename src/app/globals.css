@@ -4700,3 +4700,357 @@ html[data-theme="dark"] .elite-kpi.tone-violet .kpi-icon { background:#282340;co
   .badge.CRITICA::before,
   .badge.ALTA::before { box-shadow:none; }
 }
+
+
+/* Client portfolio operational status */
+.client-operational-status {
+  margin:0 0 18px;
+  padding:18px 20px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:22px;
+  overflow:hidden;
+  background:
+    radial-gradient(circle at 92% 8%,rgba(52,95,153,.07),transparent 30%),
+    linear-gradient(135deg,#FFFFFF,#F9FBFE);
+}
+.client-operational-status::before {
+  content:"";
+  position:absolute;
+  left:0;
+  top:18px;
+  bottom:18px;
+  width:3px;
+  border-radius:0 99px 99px 0;
+  background:linear-gradient(180deg,#345F99,#FB5C28);
+}
+.client-operational-status-copy {
+  max-width:620px;
+}
+.client-status-eyebrow {
+  display:block;
+  margin-bottom:4px;
+  color:var(--orange);
+  font-size:8px;
+  font-weight:900;
+  letter-spacing:.10em;
+  text-transform:uppercase;
+}
+.client-operational-status-copy strong {
+  display:block;
+  color:var(--navy);
+  font-size:14px;
+}
+.client-operational-status-copy p {
+  margin:5px 0 0;
+  color:#818796;
+  font-size:10px;
+  line-height:1.5;
+}
+.client-operational-status-metrics {
+  display:flex;
+  align-items:stretch;
+  gap:8px;
+  flex:0 0 auto;
+}
+.client-status-metric {
+  min-width:112px;
+  padding:10px 12px;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  border:1px solid #E6EAF1;
+  border-radius:12px;
+  background:rgba(255,255,255,.78);
+}
+.client-status-metric.checklist {
+  min-width:168px;
+}
+.client-status-icon {
+  width:31px;
+  height:31px;
+  flex:0 0 31px;
+  display:grid;
+  place-items:center;
+  border-radius:9px;
+}
+.client-status-metric.active .client-status-icon {
+  background:#EAF8F1;
+  color:#168A5B;
+}
+.client-status-metric.inactive .client-status-icon {
+  background:#F1F2F5;
+  color:#777E8D;
+}
+.client-status-metric.checklist .client-status-icon {
+  background:#EEF3FA;
+  color:#345F99;
+}
+.client-status-metric small {
+  display:block;
+  color:#858B98;
+  font-size:7.5px;
+  font-weight:900;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+.client-status-metric strong {
+  display:block;
+  margin-top:2px;
+  color:var(--navy);
+  font-size:18px;
+  line-height:1;
+}
+.client-status-metric span:not(.client-status-icon) {
+  display:block;
+  margin-top:3px;
+  color:#979CA8;
+  font-size:7.5px;
+}
+.client-matrix-counts {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.badge.client-status-inactive {
+  background:#F0F1F4;
+  color:#6E7480;
+  border-color:#E2E4E9;
+}
+.client-inactive-reason {
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  max-width:240px;
+}
+.client-inactive-reason strong {
+  color:#565D6C;
+  font-size:9.5px;
+  font-weight:850;
+  line-height:1.35;
+}
+.client-inactive-reason small {
+  color:#969CA8;
+  font-size:8px;
+}
+.client-pause-btn,
+.client-reactivate-btn {
+  padding:7px 10px;
+  min-height:32px;
+  font-size:10px;
+  box-shadow:none;
+}
+.client-pause-btn {
+  border:1px solid rgba(183,121,31,.20);
+  background:#FFF8E9;
+  color:#9A6A16;
+}
+.client-pause-btn:hover {
+  background:#FFF2D2;
+  border-color:rgba(183,121,31,.35);
+}
+.client-reactivate-btn {
+  border:1px solid rgba(22,138,91,.18);
+  background:#ECF8F2;
+  color:#16734E;
+}
+.client-reactivate-btn:hover {
+  background:#DFF3E9;
+  border-color:rgba(22,138,91,.32);
+}
+.portfolio-status-modal-backdrop {
+  position:fixed;
+  inset:0;
+  z-index:1500;
+  padding:20px;
+  display:grid;
+  place-items:center;
+  background:rgba(0,0,40,.48);
+  backdrop-filter:blur(8px);
+  animation:portfolioModalBackdropIn .16s ease both;
+}
+.portfolio-status-modal {
+  width:min(480px,100%);
+  padding:22px;
+  border:1px solid rgba(255,255,255,.75);
+  border-radius:20px;
+  background:#FFFFFF;
+  box-shadow:0 30px 90px rgba(0,0,73,.28);
+  animation:portfolioModalIn .20s cubic-bezier(.2,.8,.2,1) both;
+}
+.portfolio-status-modal-head {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:18px;
+}
+.portfolio-status-kicker {
+  display:block;
+  margin-bottom:5px;
+  color:#B7791F;
+  font-size:8px;
+  font-weight:900;
+  letter-spacing:.10em;
+  text-transform:uppercase;
+}
+.portfolio-status-modal h3 {
+  margin:0;
+  color:var(--navy);
+  font-size:20px;
+  letter-spacing:-.025em;
+}
+.portfolio-status-modal-head p {
+  margin:5px 0 0;
+  color:#818795;
+  font-size:10px;
+}
+.portfolio-status-modal-head p strong {
+  color:var(--navy);
+}
+.portfolio-status-close {
+  width:32px;
+  height:32px;
+  flex:0 0 32px;
+  display:grid;
+  place-items:center;
+  border:1px solid #E4E7ED;
+  border-radius:10px;
+  background:#F7F8FA;
+  color:#777E8D;
+}
+.portfolio-status-close:hover {
+  background:#EEF1F5;
+  color:var(--navy);
+}
+.portfolio-status-warning {
+  margin-top:12px;
+  padding:11px 12px;
+  border:1px solid #F2DFB8;
+  border-radius:11px;
+  background:#FFF9EB;
+  color:#89621C;
+  font-size:9px;
+  line-height:1.5;
+}
+.portfolio-status-modal-actions {
+  margin-top:18px;
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+}
+.client-pause-confirm {
+  border:1px solid rgba(183,121,31,.18);
+  background:linear-gradient(135deg,#C9902B,#B7791F);
+  color:#fff;
+  box-shadow:0 8px 20px rgba(183,121,31,.20);
+}
+.client-pause-confirm:hover {
+  box-shadow:0 11px 26px rgba(183,121,31,.27);
+}
+@keyframes portfolioModalBackdropIn {
+  from { opacity:0; }
+  to { opacity:1; }
+}
+@keyframes portfolioModalIn {
+  from { opacity:0;transform:translateY(10px) scale(.98); }
+  to { opacity:1;transform:translateY(0) scale(1); }
+}
+
+html[data-theme="dark"] .client-operational-status {
+  background:
+    radial-gradient(circle at 92% 8%,rgba(120,169,255,.07),transparent 30%),
+    linear-gradient(135deg,#111124,#15152B);
+}
+html[data-theme="dark"] .client-operational-status-copy strong,
+html[data-theme="dark"] .client-status-metric strong,
+html[data-theme="dark"] .portfolio-status-modal h3,
+html[data-theme="dark"] .portfolio-status-modal-head p strong {
+  color:#F4F5FF;
+}
+html[data-theme="dark"] .client-operational-status-copy p,
+html[data-theme="dark"] .client-status-metric small,
+html[data-theme="dark"] .client-status-metric span:not(.client-status-icon) {
+  color:#9DA3B4;
+}
+html[data-theme="dark"] .client-status-metric {
+  background:#17172D;
+  border-color:#303048;
+}
+html[data-theme="dark"] .client-status-metric.active .client-status-icon {
+  background:#17372B;
+  color:#8DE0B7;
+}
+html[data-theme="dark"] .client-status-metric.inactive .client-status-icon {
+  background:#24243A;
+  color:#AEB3C2;
+}
+html[data-theme="dark"] .client-status-metric.checklist .client-status-icon {
+  background:#1C3047;
+  color:#9AC9FF;
+}
+html[data-theme="dark"] .badge.client-status-inactive {
+  background:#24243A;
+  color:#B8BDCA;
+  border-color:#34344B;
+}
+html[data-theme="dark"] .client-inactive-reason strong { color:#D0D4DF; }
+html[data-theme="dark"] .client-inactive-reason small { color:#888FA1; }
+html[data-theme="dark"] .client-pause-btn {
+  background:#352B19;
+  border-color:rgba(226,177,77,.20);
+  color:#EBC36D;
+}
+html[data-theme="dark"] .client-reactivate-btn {
+  background:#17372B;
+  border-color:rgba(67,201,142,.18);
+  color:#8DE0B7;
+}
+html[data-theme="dark"] .portfolio-status-modal {
+  border-color:#303048;
+  background:#111124;
+  box-shadow:0 30px 90px rgba(0,0,0,.48);
+}
+html[data-theme="dark"] .portfolio-status-modal-head p { color:#A0A6B7; }
+html[data-theme="dark"] .portfolio-status-close {
+  background:#1B1B31;
+  border-color:#303048;
+  color:#AEB3C4;
+}
+html[data-theme="dark"] .portfolio-status-warning {
+  background:#342B19;
+  border-color:#4D3E21;
+  color:#E6C06E;
+}
+
+@media(max-width:1050px){
+  .client-operational-status {
+    align-items:flex-start;
+    flex-direction:column;
+  }
+  .client-operational-status-metrics {
+    width:100%;
+  }
+  .client-status-metric {
+    flex:1;
+  }
+}
+@media(max-width:650px){
+  .client-operational-status { padding:16px; }
+  .client-operational-status-metrics {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+  }
+  .client-status-metric.checklist {
+    grid-column:1/-1;
+    min-width:0;
+  }
+  .portfolio-status-modal { padding:18px; }
+  .portfolio-status-modal-actions {
+    align-items:stretch;
+    flex-direction:column-reverse;
+  }
+  .portfolio-status-modal-actions .btn { width:100%; }
+}
