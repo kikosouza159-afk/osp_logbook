@@ -100,7 +100,7 @@ export async function getCommercials() {
   )).rows;
 }
 
-export async function getClientPortfolios() {
+export async function getClientPortfolios(includeInactive = false) {
   return (await query<{
     id:string;
     client_id:string;
@@ -112,6 +112,10 @@ export async function getClientPortfolios() {
     commercial_id:string|null;
     commercial_name:string|null;
     active:boolean;
+    inactive_reason_code:string|null;
+    deactivated_at:string|null;
+    deactivated_by:string|null;
+    deactivated_by_name:string|null;
   }>(`
     SELECT
       cp.id,
@@ -123,16 +127,21 @@ export async function getClientPortfolios() {
       u.name AS analyst_name,
       cp.commercial_id,
       cm.name AS commercial_name,
-      cp.active
+      cp.active,
+      cp.inactive_reason_code,
+      cp.deactivated_at::text,
+      cp.deactivated_by,
+      deactivator.name AS deactivated_by_name
     FROM client_portfolios cp
     JOIN clients c ON c.id=cp.client_id
     JOIN products p ON p.id=cp.product_id
     LEFT JOIN users u ON u.id=cp.analyst_id
     LEFT JOIN commercials cm ON cm.id=cp.commercial_id
+    LEFT JOIN users deactivator ON deactivator.id=cp.deactivated_by
     WHERE c.active=TRUE
-      AND cp.active=TRUE
-    ORDER BY c.display_name,p.name
-  `)).rows;
+      AND ($1::boolean OR cp.active=TRUE)
+    ORDER BY cp.active DESC,c.display_name,p.name
+  `, [includeInactive])).rows;
 }
 
 export async function getProducts() {
