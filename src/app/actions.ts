@@ -8,6 +8,7 @@ import { createSession, destroySession, getSessionUser, requireUser } from "@/li
 import { getPool, query } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { CHECKLIST_ITEMS } from "@/lib/checklist";
+import { CLIENT_PORTFOLIO_INACTIVE_REASONS } from "@/lib/client-portfolio-status";
 
 const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
 
@@ -257,6 +258,7 @@ export async function updateClientPortfolioAction(formData: FormData) {
       commercial_id:string|null;
       client_name:string;
       product_code:string;
+      active:boolean;
     }>(
       `SELECT
          cp.id,
@@ -265,7 +267,8 @@ export async function updateClientPortfolioAction(formData: FormData) {
          cp.analyst_id,
          cp.commercial_id,
          c.display_name AS client_name,
-         p.code AS product_code
+         p.code AS product_code,
+         cp.active
        FROM client_portfolios cp
        JOIN clients c ON c.id=cp.client_id
        JOIN products p ON p.id=cp.product_id
@@ -324,7 +327,7 @@ export async function updateClientPortfolioAction(formData: FormData) {
 
     await client.query(
       `UPDATE client_portfolios
-       SET product_id=$2,analyst_id=$3,commercial_id=$4,active=TRUE,updated_at=NOW()
+       SET product_id=$2,analyst_id=$3,commercial_id=$4,updated_at=NOW()
        WHERE id=$1`,
       [current.id,product.id,analystId,commercialId]
     );
@@ -352,7 +355,7 @@ export async function updateClientPortfolioAction(formData: FormData) {
       );
     }
 
-    if (current.analyst_id && current.analyst_id !== analystId) {
+    if (current.active && current.analyst_id && current.analyst_id !== analystId) {
       await client.query(
         `DELETE FROM analyst_clients ac
          WHERE ac.client_id=$1
@@ -368,22 +371,24 @@ export async function updateClientPortfolioAction(formData: FormData) {
       );
     }
 
-    await client.query(
-      `INSERT INTO analyst_clients(analyst_id,client_id,is_primary)
-       VALUES($1,$2,FALSE)
-       ON CONFLICT(analyst_id,client_id) DO NOTHING`,
-      [analystId,current.client_id]
-    );
-
-    const hasPrimary = (await client.query<{exists:boolean}>(
-      "SELECT EXISTS(SELECT 1 FROM analyst_clients WHERE client_id=$1 AND is_primary=TRUE) AS exists",
-      [current.client_id]
-    )).rows[0]?.exists ?? false;
-    if (!hasPrimary) {
+    if (current.active) {
       await client.query(
-        "UPDATE analyst_clients SET is_primary=TRUE WHERE analyst_id=$1 AND client_id=$2",
+        `INSERT INTO analyst_clients(analyst_id,client_id,is_primary)
+         VALUES($1,$2,FALSE)
+         ON CONFLICT(analyst_id,client_id) DO NOTHING`,
         [analystId,current.client_id]
       );
+
+      const hasPrimary = (await client.query<{exists:boolean}>(
+        "SELECT EXISTS(SELECT 1 FROM analyst_clients WHERE client_id=$1 AND is_primary=TRUE) AS exists",
+        [current.client_id]
+      )).rows[0]?.exists ?? false;
+      if (!hasPrimary) {
+        await client.query(
+          "UPDATE analyst_clients SET is_primary=TRUE WHERE analyst_id=$1 AND client_id=$2",
+          [analystId,current.client_id]
+        );
+      }
     }
 
     await client.query(
@@ -419,6 +424,143 @@ export async function updateClientPortfolioAction(formData: FormData) {
   revalidatePath("/");
   redirect(`/clients?updated=${encodeURIComponent(parsed.data.clientName)}`);
 }
+
+export async function setClientPortfolioStatusAction(formData: FormData) {
+  const actor = await requireUser(["ADMIN"]);
+  const portfolioId = text(formData,"portfolio_id");
+  const targetActive = text(formData,"target_active") === "true";
+  const reasonCode = text(formData,"inactive_reason_code");
+
+  const allowedReasons = new Set(CLIENT_PORTFOLIO_INACTIVE_REASONS.map(item=>item.code));
+  const parsedId = z.string().uuid().safeParse(portfolioId);
+  if (!parsedId.success) throw new Error("Carteira inválida.");
+  if (!targetActive && !allowedReasons.has(reasonCode as never)) {
+    throw new Error("Selecione uma justificativa para desativar a carteira.");
+  }
+
+  const client = await getPool().connect();
+  let clientName = "";
+  let productCode = "";
+  try {
+    await client.query("BEGIN");
+
+    const current = (await client.query<{
+      id:string;
+      client_id:string;
+      analyst_id:string|null;
+      active:boolean;
+      client_name:string;
+      product_code:string;
+    }>(
+      `SELECT
+         cp.id,
+         cp.client_id,
+         cp.analyst_id,
+         cp.active,
+         c.display_name AS client_name,
+         p.code AS product_code
+       FROM client_portfolios cp
+       JOIN clients c ON c.id=cp.client_id
+       JOIN products p ON p.id=cp.product_id
+       WHERE cp.id=$1
+       FOR UPDATE OF cp`,
+      [portfolioId]
+    )).rows[0];
+
+    if (!current) throw new Error("Carteira não encontrada.");
+    clientName = current.client_name;
+    productCode = current.product_code;
+
+    if (current.active !== targetActive) {
+      await client.query(
+        `UPDATE client_portfolios
+         SET active=$2,
+             inactive_reason_code=CASE WHEN $2 THEN NULL ELSE $3 END,
+             deactivated_at=CASE WHEN $2 THEN NULL ELSE NOW() END,
+             deactivated_by=CASE WHEN $2 THEN NULL ELSE $4 END,
+             updated_at=NOW()
+         WHERE id=$1`,
+        [portfolioId,targetActive,targetActive ? null : reasonCode,actor.id]
+      );
+
+      await client.query(
+        `INSERT INTO client_portfolio_status_history(
+           portfolio_id,previous_active,new_active,reason_code,changed_by
+         ) VALUES($1,$2,$3,$4,$5)`,
+        [portfolioId,current.active,targetActive,targetActive ? null : reasonCode,actor.id]
+      );
+
+      if (!targetActive && current.analyst_id) {
+        await client.query(
+          `DELETE FROM analyst_clients ac
+           WHERE ac.client_id=$1
+             AND ac.analyst_id=$2
+             AND NOT EXISTS (
+               SELECT 1
+               FROM client_portfolios cp
+               WHERE cp.client_id=$1
+                 AND cp.analyst_id=$2
+                 AND cp.active=TRUE
+             )`,
+          [current.client_id,current.analyst_id]
+        );
+      }
+
+      if (targetActive) {
+        await client.query(
+          "UPDATE clients SET active=TRUE,updated_at=NOW() WHERE id=$1",
+          [current.client_id]
+        );
+
+        if (current.analyst_id) {
+          const hasPrimary = (await client.query<{exists:boolean}>(
+            "SELECT EXISTS(SELECT 1 FROM analyst_clients WHERE client_id=$1 AND is_primary=TRUE) AS exists",
+            [current.client_id]
+          )).rows[0]?.exists ?? false;
+
+          await client.query(
+            `INSERT INTO analyst_clients(analyst_id,client_id,is_primary)
+             VALUES($1,$2,$3)
+             ON CONFLICT(analyst_id,client_id) DO NOTHING`,
+            [current.analyst_id,current.client_id,!hasPrimary]
+          );
+        }
+      }
+
+      await client.query(
+        "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,$2,'client_portfolio',$3,$4::jsonb)",
+        [
+          actor.id,
+          targetActive ? "REACTIVATE_CLIENT_PORTFOLIO" : "DEACTIVATE_CLIENT_PORTFOLIO",
+          portfolioId,
+          JSON.stringify({
+            clientName:current.client_name,
+            productCode:current.product_code,
+            previousActive:current.active,
+            active:targetActive,
+            reasonCode:targetActive ? null : reasonCode,
+          })
+        ]
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  revalidatePath("/clients");
+  revalidatePath("/analysts");
+  revalidatePath("/checklist");
+  revalidatePath("/incidents/new");
+  revalidatePath("/incidents");
+  revalidatePath("/");
+  redirect(`/clients?status_changed=${encodeURIComponent(clientName)}&product=${encodeURIComponent(productCode)}&active=${targetActive ? "1" : "0"}`);
+}
+
 
 export async function deleteClientAction(formData: FormData) {
   const actor = await requireUser(["ADMIN"]);
