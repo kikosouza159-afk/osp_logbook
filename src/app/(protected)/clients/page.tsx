@@ -46,6 +46,7 @@ export default async function ClientsPage({
   const statusChanged = typeof sp.status_changed === "string" ? sp.status_changed : "";
   const statusProduct = typeof sp.product === "string" ? sp.product : "";
   const statusActive = sp.active === "1";
+  const matrixStatus = sp.status === "active" || sp.status === "inactive" ? sp.status : "all";
   const editId = typeof sp.edit === "string" ? sp.edit : "";
 
   const [portfolios,products,commercials,analysts]=await Promise.all([
@@ -80,6 +81,11 @@ export default async function ClientsPage({
   `)).rows[0]?.completed ?? 0;
   const checklistExpected = checklistEligible * CHECKLIST_ITEMS.length;
   const checklistPct = checklistExpected ? Math.round((checklistCompleted/checklistExpected)*100) : 0;
+  const displayedPortfolios = matrixStatus === "active"
+    ? activePortfolios
+    : matrixStatus === "inactive"
+      ? inactivePortfolios
+      : portfolios;
 
   return <>
     <div className="page-head">
@@ -257,9 +263,16 @@ export default async function ClientsPage({
             <h2>Matriz de clientes</h2>
             <p>Uma linha por combinação de cliente e produto, incluindo carteiras ativas e inativas.</p>
           </div>
-          <div className="client-matrix-counts">
-            <span className="badge RESOLVIDO">{activePortfolios.length} ativa(s)</span>
-            <span className="badge client-status-inactive">{inactivePortfolios.length} inativa(s)</span>
+          <div className="client-matrix-toolbar">
+            <div className="client-matrix-counts">
+              <span className="badge RESOLVIDO">{activePortfolios.length} ativa(s)</span>
+              <span className="badge client-status-inactive">{inactivePortfolios.length} inativa(s)</span>
+            </div>
+            <div className="client-status-filter" aria-label="Filtrar matriz por status">
+              <Link className={matrixStatus === "all" ? "active" : ""} href="/clients?status=all">Todos</Link>
+              <Link className={matrixStatus === "active" ? "active" : ""} href="/clients?status=active">Ativos</Link>
+              <Link className={matrixStatus === "inactive" ? "active" : ""} href="/clients?status=inactive">Inativos</Link>
+            </div>
           </div>
         </div>
       </div>
@@ -278,7 +291,7 @@ export default async function ClientsPage({
             </tr>
           </thead>
           <tbody>
-            {portfolios.map(p=><tr key={p.id}>
+            {displayedPortfolios.map(p=><tr key={p.id}>
               <td><strong>{p.client_name}</strong></td>
               <td>{analystShort(p.analyst_name)}</td>
               <td><span className={`badge client-product ${p.product_code.toLowerCase()}`}>{p.product_name}</span></td>
@@ -322,7 +335,7 @@ export default async function ClientsPage({
         </table>
       </div>
 
-      {!portfolios.length && <div className="empty">
+      {!displayedPortfolios.length && <div className="empty">
         <Building2 size={28}/>
         <strong>Nenhuma carteira cadastrada</strong>
         Use o cadastro individual ou cole uma lista do Excel.
