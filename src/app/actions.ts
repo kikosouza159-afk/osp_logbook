@@ -524,6 +524,12 @@ export async function setClientPortfolioStatusAction(formData: FormData) {
              ON CONFLICT(analyst_id,client_id) DO NOTHING`,
             [current.analyst_id,current.client_id,!hasPrimary]
           );
+          if (!hasPrimary) {
+            await client.query(
+              "UPDATE analyst_clients SET is_primary=TRUE WHERE analyst_id=$1 AND client_id=$2",
+              [current.analyst_id,current.client_id]
+            );
+          }
         }
       }
 
