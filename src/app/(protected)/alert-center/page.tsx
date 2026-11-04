@@ -345,13 +345,13 @@ function TabulationPanel({
     </div>
 
     <div className="ac-tab-filter-grid">
-      <Link className={"ac-tab-filter "+(selectedProductivity==="ALL"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,client:selectedClient})+"#tabulacoes"}>
+      <Link className={"ac-tab-filter "+(selectedProductivity==="ALL"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:effectiveCampaign,client:selectedClient})+"#tabulacoes"}>
         <small>Geral</small><strong>{integer(generalVolume)}</strong><span>100% da base</span>
       </Link>
-      <Link className={"ac-tab-filter productive "+(selectedProductivity==="PRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"PRODUTIVO",client:selectedClient})+"#tabulacoes"}>
+      <Link className={"ac-tab-filter productive "+(selectedProductivity==="PRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:effectiveCampaign,productivity:"PRODUTIVO",client:selectedClient})+"#tabulacoes"}>
         <small>Produtivo</small><strong>{integer(productiveVolume)}</strong><span>{generalVolume?percent((productiveVolume/generalVolume)*100):"0,0%"}</span>
       </Link>
-      <Link className={"ac-tab-filter unproductive "+(selectedProductivity==="IMPRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"IMPRODUTIVO",client:selectedClient})+"#tabulacoes"}>
+      <Link className={"ac-tab-filter unproductive "+(selectedProductivity==="IMPRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:effectiveCampaign,productivity:"IMPRODUTIVO",client:selectedClient})+"#tabulacoes"}>
         <small>Improdutivo</small><strong>{integer(unproductiveVolume)}</strong><span>{generalVolume?percent((unproductiveVolume/generalVolume)*100):"0,0%"}</span>
       </Link>
     </div>
@@ -621,6 +621,12 @@ export default async function AlertCenterPage({
     ORDER BY campaign_id
   `,campaignParams);
 
+  const effectiveCampaign =
+    selectedCampaign !== null &&
+    campaigns.rows.some(row => row.campaign_id === selectedCampaign)
+      ? selectedCampaign
+      : null;
+
   const attemptParams: unknown[] = [selectedDate];
   const attemptWhere = [
     "reference_date=$1::date",
@@ -630,8 +636,8 @@ export default async function AlertCenterPage({
     attemptParams.push(selectedClient);
     attemptWhere.push("client_name=$"+attemptParams.length);
   }
-  if (selectedCampaign !== null) {
-    attemptParams.push(selectedCampaign);
+  if (effectiveCampaign !== null) {
+    attemptParams.push(effectiveCampaign);
     attemptWhere.push("campaign_id=$"+attemptParams.length);
   }
   if (selectedProductivity !== "ALL") {
@@ -649,8 +655,8 @@ export default async function AlertCenterPage({
     attemptBaseParams.push(selectedClient);
     attemptBaseWhere.push("client_name=$"+attemptBaseParams.length);
   }
-  if (selectedCampaign !== null) {
-    attemptBaseParams.push(selectedCampaign);
+  if (effectiveCampaign !== null) {
+    attemptBaseParams.push(effectiveCampaign);
     attemptBaseWhere.push("campaign_id=$"+attemptBaseParams.length);
   }
   const attemptBaseFilter = attemptBaseWhere.join(" AND ");
@@ -664,8 +670,8 @@ export default async function AlertCenterPage({
     pbxParams.push(selectedClient);
     pbxWhere.push("client_name=$"+pbxParams.length);
   }
-  if (selectedCampaign !== null) {
-    pbxParams.push(selectedCampaign);
+  if (effectiveCampaign !== null) {
+    pbxParams.push(effectiveCampaign);
     pbxWhere.push("campaign_id=$"+pbxParams.length);
   }
   const pbxFilter = pbxWhere.join(" AND ");
@@ -884,10 +890,10 @@ export default async function AlertCenterPage({
     </section>
 
     <nav className="dashboard-tabs ac-tabs" aria-label="Visões do Alert Center">
-      <Link className={"dashboard-tab "+(view==="attempts"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:selectedProductivity,client:selectedClient})}>
+      <Link className={"dashboard-tab "+(view==="attempts"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:effectiveCampaign,productivity:selectedProductivity,client:selectedClient})}>
         <Activity size={16}/> Attempts
       </Link>
-      <Link className={"dashboard-tab "+(view==="pbx"?"active":"")} href={queryHref({view:"pbx",date:selectedDate,campaign:selectedCampaign,client:selectedClient})}>
+      <Link className={"dashboard-tab "+(view==="pbx"?"active":"")} href={queryHref({view:"pbx",date:selectedDate,campaign:effectiveCampaign,client:selectedClient})}>
         <PhoneCall size={16}/> PBX
       </Link>
     </nav>
@@ -908,7 +914,7 @@ export default async function AlertCenterPage({
       </div>
       <div className="field">
         <label>Campanha</label>
-        <select className="select" name="campaign" defaultValue={selectedCampaign?.toString() || ""}>
+        <select className="select" name="campaign" defaultValue={effectiveCampaign?.toString() || ""}>
           <option value="">Todas as campanhas</option>
           {campaigns.rows.map(c=><option key={c.campaign_id} value={c.campaign_id}>{c.campaign_id} · {c.campaign_name}</option>)}
         </select>
@@ -1063,7 +1069,7 @@ export default async function AlertCenterPage({
         productiveVolume={productiveVolume}
         unproductiveVolume={unproductiveVolume}
         selectedDate={selectedDate}
-        selectedCampaign={selectedCampaign}
+        selectedCampaign={effectiveCampaign}
         selectedClient={selectedClient}
       />
 
