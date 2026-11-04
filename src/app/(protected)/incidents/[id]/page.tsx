@@ -2,16 +2,17 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink, Save, MessageSquarePlus } from "lucide-react";
 import { addTicketResponseAction, updateIncidentAction } from "@/app/actions";
-import { getAnalysts, getAreas, getClientPortfolios, getIncident, getPriorities, getStatuses } from "@/lib/queries";
+import { getAnalysts, getAreas, getClientPortfolios, getIncident, getPriorities, getProblemTypes, getStatuses } from "@/lib/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { formatDateTime } from "@/lib/format";
+import { IncidentClassificationSelector } from "@/components/incident-classification-selector";
 
 function localInput(value:string|null){ if(!value) return ""; const d=new Date(value); const p=(n:number)=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
 
 export default async function IncidentDetailPage({ params }: { params: Promise<{id:string}> }) {
   const {id}=await params;
-  const [data,statuses,priorities,analysts,areas,portfolios]=await Promise.all([
-    getIncident(id),getStatuses(),getPriorities(),getAnalysts(),getAreas(),getClientPortfolios()
+  const [data,statuses,priorities,analysts,areas,portfolios,problemTypes]=await Promise.all([
+    getIncident(id),getStatuses(),getPriorities(),getAnalysts(),getAreas(),getClientPortfolios(),getProblemTypes()
   ]);
   if(!data) notFound();
   const i=data.incident;
@@ -21,14 +22,32 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
   );
 
   return <>
-    <div className="page-head"><div><Link href="/incidents" style={{fontSize:13,color:"var(--blue)"}}><ArrowLeft size={14} style={{verticalAlign:"middle"}}/> Incidentes</Link><h1 style={{marginTop:8}}>{i.title}</h1><p>{i.client_name} · {i.area_name||"Área não classificada"} · {i.products||"Sem produto"}</p></div><div style={{display:"flex",gap:8}}><StatusBadge code={i.priority_code}/><StatusBadge code={i.status_code} label={i.status_label}/></div></div>
+    <div className="page-head"><div><Link href="/incidents" style={{fontSize:13,color:"var(--blue)"}}><ArrowLeft size={14} style={{verticalAlign:"middle"}}/> Incidentes</Link><h1 style={{marginTop:8}}>{i.title}</h1><p>{i.client_name} · {i.area_name ? `${i.area_name} (${i.area_code})` : "Área não classificada"} · {i.problem_type_label||"Problema não classificado"} · {i.products||"Sem produto"}</p></div><div style={{display:"flex",gap:8}}><StatusBadge code={i.priority_code}/><StatusBadge code={i.status_code} label={i.status_label}/></div></div>
 
     <div className="detail-grid">
       <section className="card detail-block"><h2 className="section-title" style={{marginTop:0}}>Dados do incidente</h2><form action={updateIncidentAction}><input type="hidden" name="id" value={i.id}/><div className="form-grid">
         <div className="field"><label>Cliente / Produto *</label><select className="select" name="portfolio_id" defaultValue={selectedPortfolio?.id || ""} required>{portfolios.map(portfolio=><option key={portfolio.id} value={portfolio.id}>{portfolio.client_name} · {portfolio.product_code}{portfolio.analyst_name ? ` • Principal: ${portfolio.analyst_name}` : ""}</option>)}</select></div>
-        <div className="field"><label>Área</label><select className="select" name="area" defaultValue={i.area_code||""}><option value="">Não classificada</option>{areas.map(a=><option key={a.code} value={a.code}>{a.name}</option>)}</select></div>
+        <div className="field full">
+          <IncidentClassificationSelector
+            areas={areas}
+            problemTypes={problemTypes}
+            defaultArea={i.area_code||""}
+            defaultProblem={i.problem_type_code||""}
+          />
+        </div>
         <div className="field full"><label>Título</label><input className="input" name="title" defaultValue={i.title} required/></div>
-        <div className="field full"><label>Descrição</label><textarea className="textarea" name="description" defaultValue={i.description} required/></div>
+        <div className="field full"><label>Descrição do problema *</label><textarea className="textarea" name="description" defaultValue={i.description} required/></div>
+        <div className="field full incident-free-field">
+          <label>Campo livre / Observações complementares</label>
+          <textarea
+            className="textarea"
+            name="internal_notes"
+            defaultValue={i.internal_notes||""}
+            placeholder="Contexto adicional, evidências, ações já realizadas ou qualquer informação complementar..."
+            style={{minHeight:96}}
+          />
+          <small>Opcional · conteúdo livre, sem classificação obrigatória.</small>
+        </div>
         <div className="field"><label>Analista</label><select className="select" name="assigned_user_id" defaultValue={i.assigned_user_id||""}><option value="">Não atribuído</option>{analysts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
         <div className="field"><label>Prioridade</label><select className="select" name="priority" defaultValue={i.priority_code}>{priorities.map(p=><option key={p.code} value={p.code}>{p.label}</option>)}</select></div>
         <div className="field"><label>Status</label><select className="select" name="status" defaultValue={i.status_code}>{statuses.map(s=><option key={s.code} value={s.code}>{s.label}</option>)}</select></div>
@@ -36,12 +55,12 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
         <div className="field"><label>ID do chamado</label><input className="input" name="ticket_id" defaultValue={i.ticket_id||""}/></div>
         <div className="field"><label>Link do chamado</label><input className="input" name="ticket_url" type="url" defaultValue={i.ticket_url||""}/></div>
         <div className="field"><label>Abertura do chamado</label><input className="input" name="ticket_opened_at" type="datetime-local" defaultValue={localInput(i.ticket_opened_at)}/></div>
-        <div className="field full"><label>Observações internas</label><textarea className="textarea" name="internal_notes" defaultValue={i.internal_notes||""} style={{minHeight:80}}/></div>
       </div><div style={{display:"flex",justifyContent:"flex-end",marginTop:16}}><button className="btn btn-primary"><Save size={16}/> Salvar alterações</button></div></form></section>
 
       <aside><section className="card detail-block"><h2 className="section-title" style={{marginTop:0}}>Resumo</h2><div className="meta-list">
         <div className="meta"><small>Cliente</small><strong>{i.client_name}</strong></div>
-        <div className="meta"><small>Área</small><strong>{i.area_name||"Não classificada"}</strong></div>
+        <div className="meta"><small>Área responsável</small><strong>{i.area_name ? `${i.area_name} (${i.area_code})` : "Não classificada"}</strong></div>
+        <div className="meta"><small>Tipo de problema</small><strong>{i.problem_type_label||"Não classificado"}</strong></div>
         <div className="meta"><small>Produto</small><strong>{i.products||"—"}</strong></div>
         <div className="meta"><small>Criado em</small><strong>{formatDateTime(i.created_at)}</strong></div>
         <div className="meta"><small>Atualizado</small><strong>{formatDateTime(i.updated_at)}</strong></div>
