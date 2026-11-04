@@ -174,13 +174,16 @@ function Ranking({
   subtitle,
   rows,
   tone = "blue",
+  totalBase,
 }: {
   title: string;
   subtitle: string;
   rows: RankingRow[];
   tone?: "blue" | "orange" | "navy";
+  totalBase?: number;
 }) {
-  const total = rows.reduce((sum, row) => sum + n(row.volume), 0);
+  const rankedTotal = rows.reduce((sum, row) => sum + n(row.volume), 0);
+  const total = totalBase && totalBase > 0 ? totalBase : rankedTotal;
   const max = Math.max(...rows.map(row => n(row.volume)), 1);
 
   return <section className="card ac-panel">
@@ -199,7 +202,8 @@ function Ranking({
           </div>
           <div className="ac-track"><i className={tone} style={{width: Math.max(value ? 2 : 0, (value / max) * 100) + "%"}}/></div>
           <div className="ac-rank-meta">
-            <span>{total ? percent((value / total) * 100) : "0,0%"} do ranking</span>
+            <span className="ac-rep-badge">{total ? percent((value / total) * 100) : "0,0%"} representatividade</span>
+            <span>{integer(value)} ocorrências</span>
             {row.tma && <span>TMA {secondsLabel(n(row.tma))}</span>}
           </div>
         </div>;
@@ -210,76 +214,157 @@ function Ranking({
 }
 
 function DurationComboChart({ rows }: { rows: DurationRow[] }) {
-  const width = 1000;
-  const height = 330;
-  const padL = 52;
-  const padR = 54;
-  const padT = 26;
-  const padB = 72;
-  const chartW = width - padL - padR;
-  const chartH = height - padT - padB;
-  const maxVolume = Math.max(...rows.map(r => n(r.volume)), 1);
-  const maxTma = Math.max(...rows.map(r => n(r.tma)), 1);
-  const slot = rows.length ? chartW / rows.length : chartW;
-  const barW = Math.max(14, Math.min(50, slot * 0.58));
+  const total = rows.reduce((sum,row)=>sum+n(row.volume),0);
+  const maxVolume = Math.max(...rows.map(row=>n(row.volume)),1);
+  const maxTma = Math.max(...rows.map(row=>n(row.tma)),1);
 
-  const points = rows.map((row, index) => {
-    const x = padL + slot * index + slot / 2;
-    const y = padT + chartH - (n(row.tma) / maxTma) * chartH;
-    return {x, y};
-  });
-
-  return <section className="card ac-panel ac-duration-chart">
+  return <section className="card ac-panel ac-duration-tech">
     <div className="ac-panel-head">
       <div>
         <h2>Faixa de segundos · Quantidade × TMA</h2>
-        <p>Barras representam volume. A linha laranja acompanha o TMA observado dentro de cada faixa.</p>
+        <p>Volume por faixa com marcador luminoso de TMA. Passe o mouse sobre cada coluna para abrir os detalhes.</p>
       </div>
       <Waves size={19}/>
     </div>
 
-    <svg className="ac-svg" viewBox={"0 0 " + width + " " + height} role="img" aria-label="Quantidade e TMA por faixa de segundos">
-      {[0, .25, .5, .75, 1].map(step => {
-        const y = padT + chartH - chartH * step;
-        return <g key={step}>
-          <line x1={padL} x2={width-padR} y1={y} y2={y} className="ac-grid-line"/>
-          <text x={padL-10} y={y+4} textAnchor="end" className="ac-axis-text">{compact(maxVolume*step)}</text>
-        </g>;
-      })}
+    <div className="ac-tech-chart">
+      <div className="ac-tech-grid">
+        {[100,75,50,25,0].map(level=><span key={level} style={{bottom:level+"%"}}><b>{level}%</b></span>)}
+      </div>
 
-      {rows.map((row,index) => {
-        const value = n(row.volume);
-        const h = (value / maxVolume) * chartH;
-        const x = padL + slot * index + slot/2 - barW/2;
-        const label = cleanBucket(row.bucket);
-        return <g key={row.bucket}>
-          <rect x={x} y={padT+chartH-h} width={barW} height={h} rx="7" className="ac-bar">
-            <title>{row.bucket}: {integer(value)} · TMA {secondsLabel(n(row.tma))}</title>
-          </rect>
-          <text x={x+barW/2} y={height-45} textAnchor="middle" className="ac-x-label">
-            {label.length > 15 ? label.slice(0,14) + "…" : label}
-          </text>
-        </g>;
-      })}
-
-      {points.length > 1 && <polyline
-        points={points.map(p => p.x + "," + p.y).join(" ")}
-        fill="none"
-        className="ac-line"
-      />}
-
-      {points.map((point,index) => <g key={rows[index].bucket + "-point"}>
-        <circle cx={point.x} cy={point.y} r="5" className="ac-line-point">
-          <title>{rows[index].bucket}: TMA {secondsLabel(n(rows[index].tma))}</title>
-        </circle>
-      </g>)}
-
-      <text x={width-padR+8} y={padT+4} className="ac-axis-text ac-axis-right">TMA máx. {secondsLabel(maxTma)}</text>
-    </svg>
+      <div className="ac-tech-bars">
+        {rows.map(row=>{
+          const value=n(row.volume);
+          const tma=n(row.tma);
+          const volumeHeight=Math.max(value?4:0,(value/maxVolume)*100);
+          const tmaPosition=Math.max(4,Math.min(96,(tma/maxTma)*100));
+          const rep=total?(value/total)*100:0;
+          return <div className="ac-tech-column" key={row.bucket}>
+            <div className="ac-tech-plot">
+              <div className="ac-tech-tooltip">
+                <strong>{row.bucket}</strong>
+                <div><span>Quantidade</span><b>{integer(value)}</b></div>
+                <div><span>TMA</span><b>{secondsLabel(tma)}</b></div>
+                <div><span>Representatividade</span><b>{percent(rep)}</b></div>
+              </div>
+              <div className="ac-tech-tma-line" style={{bottom:tmaPosition+"%"}}>
+                <i/>
+              </div>
+              <div className="ac-tech-bar" style={{height:volumeHeight+"%"}}>
+                <span/>
+              </div>
+            </div>
+            <strong className="ac-tech-label" title={row.bucket}>{cleanBucket(row.bucket)}</strong>
+          </div>;
+        })}
+      </div>
+    </div>
 
     <div className="ac-chart-legend">
       <span><i className="bar"/>Quantidade</span>
-      <span><i className="line"/>TMA</span>
+      <span><i className="line"/>Marcador TMA</span>
+    </div>
+  </section>;
+}
+
+function RepresentationView({
+  title,
+  subtitle,
+  rows,
+  totalBase,
+  tone = "blue",
+}: {
+  title: string;
+  subtitle: string;
+  rows: {label:string;volume:string}[];
+  totalBase: number;
+  tone?: "blue" | "orange" | "navy";
+}) {
+  const maxPct = Math.max(...rows.map(row=>totalBase?(n(row.volume)/totalBase)*100:0),1);
+
+  return <section className="card ac-panel">
+    <div className="ac-panel-head">
+      <div><h2>{title}</h2><p>{subtitle}</p></div>
+      <BarChart3 size={19}/>
+    </div>
+
+    <div className="ac-rep-grid">
+      {rows.map((row,index)=>{
+        const value=n(row.volume);
+        const pct=totalBase?(value/totalBase)*100:0;
+        return <article className="ac-rep-card" key={row.label}>
+          <div className="ac-rep-top">
+            <span>{String(index+1).padStart(2,"0")}</span>
+            <strong title={row.label}>{row.label}</strong>
+            <b>{percent(pct)}</b>
+          </div>
+          <div className="ac-rep-track"><i className={tone} style={{width:Math.max(value?3:0,(pct/maxPct)*100)+"%"}}/></div>
+          <div className="ac-rep-foot"><span>{integer(value)} ocorrências</span><span>{percent(pct)} do total</span></div>
+        </article>;
+      })}
+      {!rows.length && <div className="ac-empty">Sem dados para o recorte.</div>}
+    </div>
+  </section>;
+}
+
+function TabulationPanel({
+  rows,
+  total,
+  selectedProductivity,
+  generalVolume,
+  productiveVolume,
+  unproductiveVolume,
+  selectedDate,
+  selectedCampaign,
+}: {
+  rows: RankingRow[];
+  total: number;
+  selectedProductivity: string;
+  generalVolume: number;
+  productiveVolume: number;
+  unproductiveVolume: number;
+  selectedDate: string;
+  selectedCampaign: number | null;
+}) {
+  return <section className="card ac-panel" id="tabulacoes">
+    <div className="ac-panel-head">
+      <div>
+        <h2>Tabulações · visão geral</h2>
+        <p>Quantidade, TMA e representatividade sobre o volume do recorte selecionado.</p>
+      </div>
+      <Layers3 size={19}/>
+    </div>
+
+    <div className="ac-tab-filter-grid">
+      <Link className={"ac-tab-filter "+(selectedProductivity==="ALL"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign})+"#tabulacoes"}>
+        <small>Geral</small><strong>{integer(generalVolume)}</strong><span>100% da base</span>
+      </Link>
+      <Link className={"ac-tab-filter productive "+(selectedProductivity==="PRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"PRODUTIVO"})+"#tabulacoes"}>
+        <small>Produtivo</small><strong>{integer(productiveVolume)}</strong><span>{generalVolume?percent((productiveVolume/generalVolume)*100):"0,0%"}</span>
+      </Link>
+      <Link className={"ac-tab-filter unproductive "+(selectedProductivity==="IMPRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"IMPRODUTIVO"})+"#tabulacoes"}>
+        <small>Improdutivo</small><strong>{integer(unproductiveVolume)}</strong><span>{generalVolume?percent((unproductiveVolume/generalVolume)*100):"0,0%"}</span>
+      </Link>
+    </div>
+
+    <div className="ac-ranking ac-tab-ranking">
+      {rows.map((row,index)=>{
+        const value=n(row.volume);
+        const rep=total?(value/total)*100:0;
+        return <div className="ac-rank ac-tab-rank" key={row.label}>
+          <div className="ac-rank-top">
+            <span className="ac-rank-order">{String(index+1).padStart(2,"0")}</span>
+            <strong title={row.label}>{row.label}</strong>
+            <b>{integer(value)}</b>
+          </div>
+          <div className="ac-track"><i className="orange" style={{width:Math.max(value?2:0,rep)+"%"}}/></div>
+          <div className="ac-rank-meta">
+            <span className="ac-rep-badge">{percent(rep)} representatividade</span>
+            <span>{integer(value)} ocorrências</span>
+            {row.tma && <span>TMA {secondsLabel(n(row.tma))}</span>}
+          </div>
+        </div>;
+      })}
     </div>
   </section>;
 }
@@ -613,6 +698,43 @@ export default async function AlertCenterPage({
     .ac-chart-legend i.bar{width:14px;height:7px;border-radius:3px;background:#345f99}
     .ac-chart-legend i.line{width:16px;height:2px;background:#fb5c28;position:relative}
     .ac-chart-legend i.line:after{content:"";position:absolute;width:5px;height:5px;border-radius:50%;background:#fb5c28;left:6px;top:-1.5px}
+    .ac-tech-chart{position:relative;height:330px;padding:18px 8px 0;border:1px solid #edf0f5;border-radius:16px;background:linear-gradient(180deg,#fbfcff 0%,#f6f8fc 100%);overflow:visible}
+    .ac-tech-grid{position:absolute;inset:18px 8px 44px 8px;pointer-events:none}
+    .ac-tech-grid>span{position:absolute;left:0;right:0;border-top:1px dashed #dfe4ee}
+    .ac-tech-grid b{position:absolute;left:0;top:-8px;font-size:8px;color:#a0a6b2;background:#f8faff;padding-right:4px}
+    .ac-tech-bars{position:absolute;left:30px;right:12px;top:18px;bottom:42px;display:grid;grid-template-columns:repeat(12,minmax(48px,1fr));gap:8px;align-items:end}
+    .ac-tech-column{height:100%;min-width:0;display:grid;grid-template-rows:minmax(0,1fr) 34px;gap:7px}
+    .ac-tech-plot{position:relative;height:100%;display:flex;align-items:flex-end;justify-content:center;border-radius:12px;background:linear-gradient(180deg,rgba(52,95,153,.025),rgba(52,95,153,.01))}
+    .ac-tech-bar{position:relative;width:min(34px,64%);border-radius:9px 9px 3px 3px;background:linear-gradient(180deg,#5e8fc9 0%,#345f99 58%,#000049 100%);box-shadow:0 10px 24px rgba(52,95,153,.18),0 0 0 1px rgba(52,95,153,.12);transition:.22s ease}
+    .ac-tech-bar:before{content:"";position:absolute;inset:1px 3px auto;height:36%;border-radius:7px;background:linear-gradient(180deg,rgba(255,255,255,.32),transparent)}
+    .ac-tech-bar span{position:absolute;inset:0;border-radius:inherit;box-shadow:0 0 20px rgba(52,95,153,.18) inset}
+    .ac-tech-tma-line{position:absolute;left:50%;width:70%;height:1px;transform:translateX(-50%);background:linear-gradient(90deg,transparent,#fb5c28,transparent);z-index:3;transition:.2s}
+    .ac-tech-tma-line i{position:absolute;left:50%;top:50%;width:9px;height:9px;border-radius:50%;transform:translate(-50%,-50%);background:#fb5c28;border:2px solid #fff;box-shadow:0 0 0 4px rgba(251,92,40,.13),0 0 18px rgba(251,92,40,.45)}
+    .ac-tech-column:hover .ac-tech-bar{filter:brightness(1.12);transform:translateY(-2px);box-shadow:0 12px 28px rgba(52,95,153,.28),0 0 22px rgba(52,95,153,.18)}
+    .ac-tech-column:hover .ac-tech-tma-line{background:linear-gradient(90deg,transparent,#ff7b4d,transparent)}
+    .ac-tech-tooltip{position:absolute;left:50%;bottom:calc(100% + 12px);transform:translate(-50%,6px);min-width:190px;padding:11px 12px;border-radius:12px;background:#000049;color:#fff;opacity:0;visibility:hidden;pointer-events:none;z-index:20;box-shadow:0 16px 35px rgba(0,0,73,.28);transition:.18s}
+    .ac-tech-tooltip:after{content:"";position:absolute;left:50%;bottom:-6px;width:12px;height:12px;background:#000049;transform:translateX(-50%) rotate(45deg)}
+    .ac-tech-tooltip>strong{display:block;margin-bottom:8px;color:#fff;font-size:10px}
+    .ac-tech-tooltip div{display:flex;justify-content:space-between;gap:14px;padding:3px 0;font-size:9px;color:#cbd4ed}
+    .ac-tech-tooltip div b{color:#fff;font-size:10px}
+    .ac-tech-column:hover .ac-tech-tooltip{opacity:1;visibility:visible;transform:translate(-50%,0)}
+    .ac-tech-label{display:block;color:#6d7484;font-size:8px;line-height:1.15;text-align:center;white-space:normal;overflow:hidden}
+    .ac-rep-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+    .ac-rep-card{padding:11px 12px;border:1px solid #edf0f5;border-radius:12px;background:linear-gradient(180deg,#fff,#fafbfc)}
+    .ac-rep-top{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:center}
+    .ac-rep-top>span{color:#a0a6b1;font-size:9px;font-weight:900}
+    .ac-rep-top strong{color:#303648;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .ac-rep-top b{color:var(--navy);font-size:12px}
+    .ac-rep-track{height:7px;margin:7px 0 5px 36px;border-radius:999px;background:#eef1f6;overflow:hidden}
+    .ac-rep-track i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#345f99,#7ca1d0)}
+    .ac-rep-track i.orange{background:linear-gradient(90deg,#fb5c28,#ff9a72)}.ac-rep-track i.navy{background:linear-gradient(90deg,#000049,#505996)}
+    .ac-rep-foot{display:flex;justify-content:space-between;gap:8px;margin-left:36px;color:#969ba6;font-size:8px}
+    .ac-rep-badge{display:inline-flex;align-items:center;padding:3px 6px;border-radius:999px;background:#eef3fa;color:#345f99!important;font-weight:900}
+    .ac-tab-filter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-bottom:16px}
+    .ac-tab-filter{position:relative;overflow:hidden;padding:12px;border:1px solid #e7eaf1;border-radius:12px;background:#fafbfc}
+    .ac-tab-filter:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#345f99}.ac-tab-filter.productive:before{background:#168a5b}.ac-tab-filter.unproductive:before{background:#fb5c28}
+    .ac-tab-filter.active{border-color:rgba(251,92,40,.35);box-shadow:0 8px 22px rgba(0,0,73,.06),inset 0 0 0 1px rgba(251,92,40,.08)}
+    .ac-tab-filter small{display:block;color:#858b98;font-size:8px;text-transform:uppercase;letter-spacing:.08em;font-weight:900}.ac-tab-filter strong{display:block;margin-top:5px;color:var(--navy);font-size:20px}.ac-tab-filter span{display:block;margin-top:4px;color:#969ba6;font-size:9px}
     .ac-productivity{margin-bottom:14px}
     .ac-productivity-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:0 2px 9px}
     .ac-productivity-head h2{margin:0;color:var(--navy);font-size:15px}
@@ -686,7 +808,7 @@ export default async function AlertCenterPage({
     .ac-empty,.ac-empty-state{text-align:center;color:#8b909c}.ac-empty{padding:18px}.ac-empty-state{padding:48px}.ac-empty-state h1{color:var(--navy)}
     @keyframes acCriticalBlink{0%,100%{box-shadow:0 0 0 rgba(196,59,59,0)}50%{box-shadow:0 0 0 3px rgba(196,59,59,.18),0 0 22px rgba(196,59,59,.13)}}
     @media(max-width:1250px){.ac-kpis{grid-template-columns:repeat(3,1fr)}.ac-grid-2,.ac-etl{grid-template-columns:1fr}.ac-pair-grid{grid-template-columns:repeat(2,1fr)}}
-    @media(max-width:800px){.ac-hero-inner{align-items:flex-start;flex-direction:column}.ac-hero-meta{justify-content:flex-start}.ac-filter{grid-template-columns:1fr}.ac-kpis{grid-template-columns:repeat(2,1fr)}.ac-productivity-grid{grid-template-columns:1fr}.ac-pair-grid{grid-template-columns:1fr}}
+    @media(max-width:800px){.ac-tech-bars{grid-template-columns:repeat(12,minmax(42px,1fr));overflow-x:auto}.ac-rep-grid{grid-template-columns:1fr}.ac-tab-filter-grid{grid-template-columns:1fr}.ac-hero-inner{align-items:flex-start;flex-direction:column}.ac-hero-meta{justify-content:flex-start}.ac-filter{grid-template-columns:1fr}.ac-kpis{grid-template-columns:repeat(2,1fr)}.ac-productivity-grid{grid-template-columns:1fr}.ac-pair-grid{grid-template-columns:1fr}}
     @media(max-width:520px){.ac-kpis{grid-template-columns:1fr}}
   `}</style>;
 
@@ -861,9 +983,6 @@ export default async function AlertCenterPage({
       {hero}
 
       <section className="ac-productivity">
-        <div className="ac-productivity-head">
-          <div><h2>Produtividade · filtro por AgentId</h2><p>O clique altera todos os gráficos e matrizes da aba Attempts.</p></div>
-        </div>
         <div className="ac-productivity-grid">
           <Link className={"ac-productivity-card "+(selectedProductivity==="ALL"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign})}>
             <small>Geral</small><strong>{integer(generalVolume)}</strong><span>Todas as chamadas</span>
@@ -887,10 +1006,26 @@ export default async function AlertCenterPage({
 
       <HourPulse rows={hourResult.rows} title="Pulso geral · Attempts"/>
 
-      <div className="ac-grid-2">
-        <DurationComboChart rows={durationResult.rows}/>
-        <Ranking title="Tabulações · visão geral" subtitle="Volume, representatividade e TMA por tabulação." rows={tabResult.rows} tone="orange"/>
-      </div>
+      <DurationComboChart rows={durationResult.rows}/>
+
+      <RepresentationView
+        title="Representatividade por faixa de segundos"
+        subtitle="Participação percentual de cada faixa sobre o volume total do recorte."
+        rows={durationResult.rows.map(row=>({label:cleanBucket(row.bucket),volume:row.volume}))}
+        totalBase={total}
+        tone="blue"
+      />
+
+      <TabulationPanel
+        rows={tabResult.rows}
+        total={total}
+        selectedProductivity={selectedProductivity}
+        generalVolume={generalVolume}
+        productiveVolume={productiveVolume}
+        unproductiveVolume={unproductiveVolume}
+        selectedDate={selectedDate}
+        selectedCampaign={selectedCampaign}
+      />
 
       <CrossHeatmap
         title="Tabulação × faixa de segundos"
@@ -1047,8 +1182,25 @@ export default async function AlertCenterPage({
     <HourPulse rows={pbxHourResult.rows} title="Pulso geral · PBX"/>
 
     <div className="ac-grid-2">
-      <Ranking title="PBX consolidado · por retorno" subtitle="Ranking de retorno PBX por volume." rows={returnResult.rows} tone="navy"/>
-      <Ranking title="SignalingExtraInfo · consolidado" subtitle="Distribuição dos códigos de sinalização recebidos." rows={signalingResult.rows} tone="orange"/>
+      <Ranking title="PBX consolidado · por retorno" subtitle="Volume quantitativo e representatividade de cada retorno sobre o PBX total." rows={returnResult.rows} tone="navy" totalBase={pbxTotal}/>
+      <Ranking title="SignalingExtraInfo · consolidado" subtitle="Volume quantitativo e representatividade de cada código sobre o PBX total." rows={signalingResult.rows} tone="orange" totalBase={pbxTotal}/>
+    </div>
+
+    <div className="ac-grid-2">
+      <RepresentationView
+        title="Representatividade · retorno PBX"
+        subtitle="Percentual de participação dos principais retornos sobre o volume PBX."
+        rows={returnResult.rows}
+        totalBase={pbxTotal}
+        tone="navy"
+      />
+      <RepresentationView
+        title="Representatividade · SignalingExtraInfo"
+        subtitle="Percentual de participação dos principais códigos de sinalização."
+        rows={signalingResult.rows}
+        totalBase={pbxTotal}
+        tone="orange"
+      />
     </div>
 
     <PbxPairs rows={pairResult.rows}/>
