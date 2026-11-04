@@ -1140,6 +1140,7 @@ export async function createIncidentAction(formData: FormData) {
   const data = {
     portfolioId: text(formData, "portfolio_id"),
     area: text(formData, "area"),
+    problemType: text(formData, "problem_type"),
     title: text(formData, "title"),
     description: text(formData, "description"),
     priority: text(formData, "priority"),
@@ -1154,7 +1155,8 @@ export async function createIncidentAction(formData: FormData) {
 
   const parsed = z.object({
     portfolioId:z.string().uuid(),
-    area:z.string().min(1),
+    area:z.enum(["OTS","OPC","ODE"]),
+    problemType:z.string().min(1),
     title:z.string().min(3),
     description:z.string().min(3),
     priority:z.string().min(1),
@@ -1192,15 +1194,25 @@ export async function createIncidentAction(formData: FormData) {
     )).rows[0];
     if (!portfolio) throw new Error("Carteira não encontrada ou inativa.");
 
+    const problem = (await client.query<{code:string;label:string}>(
+      `SELECT code,label
+       FROM incident_problem_types
+       WHERE code=$1
+         AND area_code=$2
+         AND active=TRUE`,
+      [data.problemType,data.area]
+    )).rows[0];
+    if (!problem) throw new Error("O tipo de problema não pertence à área selecionada.");
+
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO incidents(
-         client_id,area_code,title,description,has_ticket,ticket_id,ticket_url,ticket_opened_at,
+         client_id,area_code,problem_type_code,title,description,has_ticket,ticket_id,ticket_url,ticket_opened_at,
          priority_code,status_code,assigned_user_id,internal_notes,created_by
        )
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING id`,
       [
-        portfolio.client_id,data.area,data.title,data.description,data.hasTicket,
+        portfolio.client_id,data.area,data.problemType,data.title,data.description,data.hasTicket,
         nullable(data.ticketId),nullable(data.ticketUrl),nullable(data.ticketOpenedAt),
         data.priority,data.status,nullable(data.analyst),nullable(data.notes),user.id
       ]
@@ -1213,7 +1225,7 @@ export async function createIncidentAction(formData: FormData) {
     );
     await client.query(
       "INSERT INTO incident_updates(incident_id,user_id,update_type,new_value,comment) VALUES($1,$2,'INCIDENT_CREATED',$3,$4)",
-      [incidentId,user.id,data.status,`Registro criado para ${portfolio.client_name} · ${portfolio.product_code}`]
+      [incidentId,user.id,data.status,`Registro criado para ${portfolio.client_name} · ${portfolio.product_code} · ${data.area} · ${problem.label}`]
     );
     await client.query(
       "INSERT INTO audit_logs(user_id,action,entity,entity_id,metadata) VALUES($1,'CREATE_INCIDENT','incident',$2,$3::jsonb)",
@@ -1224,6 +1236,8 @@ export async function createIncidentAction(formData: FormData) {
         productId:portfolio.product_id,
         productCode:portfolio.product_code,
         area:data.area,
+        problemType:data.problemType,
+        problemLabel:problem.label,
         status:data.status,
       })]
     );
@@ -1250,6 +1264,7 @@ export async function updateIncidentAction(formData: FormData) {
     id: text(formData, "id"),
     portfolioId: text(formData, "portfolio_id"),
     area: text(formData, "area"),
+    problemType: text(formData, "problem_type"),
     title: text(formData, "title"),
     description: text(formData, "description"),
     priority: text(formData, "priority"),
@@ -1265,6 +1280,8 @@ export async function updateIncidentAction(formData: FormData) {
   const parsed = z.object({
     id: z.string().uuid(),
     portfolioId: z.string().uuid(),
+    area:z.enum(["OTS","OPC","ODE"]),
+    problemType:z.string().min(1),
     title: z.string().min(3),
     description: z.string().min(3),
     priority: z.string().min(1),
@@ -1283,8 +1300,9 @@ export async function updateIncidentAction(formData: FormData) {
       assigned_user_id:string|null;
       priority_code:string;
       area_code:string|null;
+      problem_type_code:string|null;
     }>(
-      "SELECT client_id,status_code,assigned_user_id,priority_code,area_code FROM incidents WHERE id=$1 FOR UPDATE",
+      "SELECT client_id,status_code,assigned_user_id,priority_code,area_code,problem_type_code FROM incidents WHERE id=$1 FOR UPDATE",
       [data.id]
     )).rows[0];
     if (!current) throw new Error("Incidente não encontrado.");
@@ -1313,6 +1331,16 @@ export async function updateIncidentAction(formData: FormData) {
     )).rows[0];
     if (!portfolio) throw new Error("Carteira não encontrada ou inativa.");
 
+    const problem = (await client.query<{code:string;label:string}>(
+      `SELECT code,label
+       FROM incident_problem_types
+       WHERE code=$1
+         AND area_code=$2
+         AND active=TRUE`,
+      [data.problemType,data.area]
+    )).rows[0];
+    if (!problem) throw new Error("O tipo de problema não pertence à área selecionada.");
+
     const currentProducts = (await client.query<{id:string;code:string}>(
       `SELECT p.id,p.code
        FROM incident_products ip
@@ -1323,7 +1351,6 @@ export async function updateIncidentAction(formData: FormData) {
     )).rows;
 
     const analyst = nullable(data.analyst);
-    const area = nullable(data.area);
 
     await client.query(
       `UPDATE incidents
@@ -1339,13 +1366,14 @@ export async function updateIncidentAction(formData: FormData) {
            ticket_url=$11,
            ticket_opened_at=$12,
            area_code=$13,
+           problem_type_code=$14,
            updated_at=NOW(),
            resolved_at=CASE WHEN $6 IN ('RESOLVIDO','ENCERRADO') THEN COALESCE(resolved_at,NOW()) ELSE NULL END
        WHERE id=$1`,
       [
         data.id,portfolio.client_id,data.title,data.description,data.priority,data.status,analyst,
         nullable(data.notes),data.hasTicket,nullable(data.ticketId),nullable(data.ticketUrl),
-        nullable(data.ticketOpenedAt),area
+        nullable(data.ticketOpenedAt),data.area,data.problemType
       ]
     );
 
@@ -1367,10 +1395,16 @@ export async function updateIncidentAction(formData: FormData) {
         [data.id,user.id,current.assigned_user_id,analyst]
       );
     }
-    if (current.area_code !== area) {
+    if (current.area_code !== data.area) {
       await client.query(
         "INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value) VALUES($1,$2,'AREA_CHANGE',$3,$4)",
-        [data.id,user.id,current.area_code,area]
+        [data.id,user.id,current.area_code,data.area]
+      );
+    }
+    if (current.problem_type_code !== data.problemType) {
+      await client.query(
+        "INSERT INTO incident_updates(incident_id,user_id,update_type,old_value,new_value,comment) VALUES($1,$2,'PROBLEM_TYPE_CHANGE',$3,$4,$5)",
+        [data.id,user.id,current.problem_type_code,data.problemType,`Tipo de problema: ${problem.label}`]
       );
     }
     if (current.client_id !== portfolio.client_id) {
@@ -1399,7 +1433,9 @@ export async function updateIncidentAction(formData: FormData) {
         status:data.status,
         priority:data.priority,
         analyst,
-        area,
+        area:data.area,
+        problemType:data.problemType,
+        problemLabel:problem.label,
       })]
     );
 
