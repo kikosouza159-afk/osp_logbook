@@ -1,28 +1,42 @@
-from servers import SERVERS, unique_enabled_hosts, validate_server_config
+from servers import SOURCES, unique_connections, validate_source_config
 
 
 def main() -> int:
-    print("=" * 58)
-    print("OSP MONITOR ENGINE - VALIDACAO DE SERVIDORES")
-    print("=" * 58)
+    print("=" * 64)
+    print("OSP MONITOR ENGINE - VALIDACAO DE FONTES")
+    print("=" * 64)
 
-    enabled = [s for s in SERVERS if s.get("enabled", True)]
-    disabled = [s for s in SERVERS if not s.get("enabled", True)]
+    enabled = [
+        source
+        for source in SOURCES
+        if source.get("enabled", True)
+    ]
 
-    print(f"Entradas configuradas : {len(SERVERS)}")
-    print(f"Entradas habilitadas  : {len(enabled)}")
-    print(f"Hosts unicos ativos   : {len(unique_enabled_hosts())}")
-    print(f"Entradas desabilitadas: {len(disabled)}")
+    disabled = [
+        source
+        for source in SOURCES
+        if not source.get("enabled", True)
+    ]
+
+    print(f"Vinculos configurados : {len(SOURCES)}")
+    print(f"Vinculos habilitados  : {len(enabled)}")
+    print(f"Conexoes IP + Banco   : {len(unique_connections())}")
+    print(f"Vinculos desabilitados: {len(disabled)}")
     print()
 
-    errors = validate_server_config()
+    errors = validate_source_config()
 
     if errors:
         print("CONFIGURACAO PENDENTE:")
+
         for error in errors:
             print(f" - {error}")
+
         print()
-        print("Nenhuma carga deve ser ativada enquanto houver pendencias.")
+        print(
+            "Nenhuma carga deve ser ativada "
+            "enquanto houver pendencias."
+        )
         return 1
 
     print("CONFIGURACAO OK.")
