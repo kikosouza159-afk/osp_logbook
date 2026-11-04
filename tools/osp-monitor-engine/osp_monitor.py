@@ -55,7 +55,8 @@ SELECT
     CAST(Tabulacao AS varchar(500)) AS Tabulacao,
     CAST(Fx_Segundos AS varchar(150)) AS Fx_Segundos,
     CAST(Quantidade AS bigint) AS Quantidade,
-    CAST(Segundos AS bigint) AS Segundos
+    CAST(Segundos AS bigint) AS Segundos,
+    {productivity_expr} AS Produtividade
 FROM {table} WITH (NOLOCK)
 WHERE Data = CAST(GETDATE() AS date);
 """
@@ -208,10 +209,6 @@ def connect_neon() -> psycopg.Connection:
 
 def sql_today(conn: pyodbc.Connection):
     cursor = conn.cursor()
-    cursor.timeout = int(
-        os.getenv("SQLSERVER_QUERY_TIMEOUT", "180")
-    )
-
     row = cursor.execute(
         "SELECT CAST(GETDATE() AS date)"
     ).fetchone()
@@ -225,14 +222,36 @@ def sql_today(conn: pyodbc.Connection):
     return row[0]
 
 
+def source_column_exists(
+    conn: pyodbc.Connection,
+    table_name: str,
+    column_name: str,
+) -> bool:
+    object_name = (
+        table_name
+        .replace("[", "")
+        .replace("]", "")
+    )
+
+    row = conn.cursor().execute(
+        """
+        SELECT CASE
+          WHEN COL_LENGTH(?, ?) IS NULL THEN 0
+          ELSE 1
+        END
+        """,
+        object_name,
+        column_name,
+    ).fetchone()
+
+    return bool(row and int(row[0]) == 1)
+
+
 def fetch_rows(
     conn: pyodbc.Connection,
     sql_text: str,
 ) -> list[tuple[Any, ...]]:
     cursor = conn.cursor()
-    cursor.timeout = int(
-        os.getenv("SQLSERVER_QUERY_TIMEOUT", "180")
-    )
     cursor.execute(sql_text)
     return [tuple(row) for row in cursor.fetchall()]
 
@@ -464,6 +483,7 @@ def classify_tabulation_rows(
             row[9],
             row[10],
             row[11],
+            row[12],
         ))
 
     return result
@@ -550,10 +570,23 @@ def extract_all_sources(
                     f"esperada={source_date}."
                 )
 
+            has_productivity = source_column_exists(
+                conn,
+                tabulation_table,
+                "Produtividade",
+            )
+
+            productivity_expr = (
+                "CAST(Produtividade AS varchar(20))"
+                if has_productivity
+                else "CAST(NULL AS varchar(20))"
+            )
+
             tabulation_source = fetch_rows(
                 conn,
                 TABULATION_SELECT.format(
-                    table=tabulation_table
+                    table=tabulation_table,
+                    productivity_expr=productivity_expr,
                 ),
             )
 
@@ -607,6 +640,7 @@ def extract_all_sources(
                     tabulation_rows
                 ),
                 "pbx_rows": len(pbx_rows),
+                "productivity_dimension": has_productivity,
                 "duration_ms": int(
                     (
                         time.monotonic()
@@ -691,12 +725,14 @@ def replace_today(
         seconds_bucket,
         quantity,
         seconds,
+        productivity_class,
         synced_at
       )
       VALUES(
         %s,%s,%s,%s,%s,
         %s,%s,%s,%s,%s,
         %s,%s,%s,%s,%s,
+        %s,
         NOW()
       )
     """
