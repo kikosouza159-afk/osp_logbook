@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ClipboardCheck, BookOpenCheck, Siren, MessageSquareText, Building2,
-  Users, History, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Sparkles, ShieldCheck
+  Users, History, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Sparkles, ShieldCheck, RadioTower
 } from "lucide-react";
 import { logoutAction } from "@/app/actions";
 import type { SessionUser } from "@/lib/auth";
@@ -14,6 +14,7 @@ const groups = [
     label:"Monitoramento",
     items:[
       ["/", "Visão Geral", LayoutDashboard],
+      ["/alert-center", "Alert Center", RadioTower],
       ["/checklist", "Checklist", ClipboardCheck],
       ["/incidents", "Incidentes", Siren],
       ["/responses", "Respostas", MessageSquareText],
