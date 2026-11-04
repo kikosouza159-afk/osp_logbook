@@ -32,6 +32,10 @@ type CampaignRow = {
   volume: string;
 };
 
+type ClientRow = {
+  client_name: string;
+};
+
 type RankingRow = {
   label: string;
   volume: string;
@@ -155,15 +159,18 @@ function queryHref({
   date,
   campaign,
   productivity,
+  client,
 }: {
   view: "attempts" | "pbx";
   date: string;
   campaign: number | null;
   productivity?: string;
+  client?: string;
 }) {
   const params = new URLSearchParams();
   params.set("view", view);
   params.set("date", date);
+  if (client && client !== "ALL") params.set("client", client);
   if (campaign !== null) params.set("campaign", String(campaign));
   if (productivity && productivity !== "ALL") params.set("productivity", productivity);
   return "/alert-center?" + params.toString();
@@ -316,6 +323,7 @@ function TabulationPanel({
   unproductiveVolume,
   selectedDate,
   selectedCampaign,
+  selectedClient,
 }: {
   rows: RankingRow[];
   total: number;
@@ -325,6 +333,7 @@ function TabulationPanel({
   unproductiveVolume: number;
   selectedDate: string;
   selectedCampaign: number | null;
+  selectedClient: string;
 }) {
   return <section className="card ac-panel" id="tabulacoes">
     <div className="ac-panel-head">
@@ -336,13 +345,13 @@ function TabulationPanel({
     </div>
 
     <div className="ac-tab-filter-grid">
-      <Link className={"ac-tab-filter "+(selectedProductivity==="ALL"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign})+"#tabulacoes"}>
+      <Link className={"ac-tab-filter "+(selectedProductivity==="ALL"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,client:selectedClient})+"#tabulacoes"}>
         <small>Geral</small><strong>{integer(generalVolume)}</strong><span>100% da base</span>
       </Link>
-      <Link className={"ac-tab-filter productive "+(selectedProductivity==="PRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"PRODUTIVO"})+"#tabulacoes"}>
+      <Link className={"ac-tab-filter productive "+(selectedProductivity==="PRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"PRODUTIVO",client:selectedClient})+"#tabulacoes"}>
         <small>Produtivo</small><strong>{integer(productiveVolume)}</strong><span>{generalVolume?percent((productiveVolume/generalVolume)*100):"0,0%"}</span>
       </Link>
-      <Link className={"ac-tab-filter unproductive "+(selectedProductivity==="IMPRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"IMPRODUTIVO"})+"#tabulacoes"}>
+      <Link className={"ac-tab-filter unproductive "+(selectedProductivity==="IMPRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"IMPRODUTIVO",client:selectedClient})+"#tabulacoes"}>
         <small>Improdutivo</small><strong>{integer(unproductiveVolume)}</strong><span>{generalVolume?percent((unproductiveVolume/generalVolume)*100):"0,0%"}</span>
       </Link>
     </div>
@@ -554,13 +563,32 @@ export default async function AlertCenterPage({
   const view: "attempts" | "pbx" = requestedView === "pbx" ? "pbx" : "attempts";
   const requestedDate = typeof sp.date === "string" ? sp.date : "";
   const requestedCampaign = typeof sp.campaign === "string" ? sp.campaign : "";
+  const requestedClient = typeof sp.client === "string" ? sp.client.trim() : "ALL";
   const requestedProductivity = typeof sp.productivity === "string" ? sp.productivity.toUpperCase() : "ALL";
+
+  const clientsResult = await query<ClientRow>(`
+    SELECT client_name
+    FROM osp_monitor_clients
+    ORDER BY client_name
+  `);
+
+  const selectedClient = requestedClient && requestedClient !== "ALL"
+    ? requestedClient
+    : "ALL";
+
+  const latestDateParams: unknown[] = [];
+  let latestDateClientSql = "";
+  if (selectedClient !== "ALL") {
+    latestDateParams.push(selectedClient);
+    latestDateClientSql = ` AND client_name=$1`;
+  }
 
   const latestDateResult = await query<{reference_date:string|null}>(`
     SELECT MAX(reference_date)::text AS reference_date
     FROM osp_monitor_tabulation
-    WHERE client_name='FastFlow' AND product_code='ADA'
-  `);
+    WHERE product_code='ADA'
+    ${latestDateClientSql}
+  `,latestDateParams);
 
   const selectedDate = requestedDate || latestDateResult.rows[0]?.reference_date || "";
   const selectedCampaign = /^\d+$/.test(requestedCampaign) ? Number(requestedCampaign) : null;
@@ -576,20 +604,32 @@ export default async function AlertCenterPage({
     </section>;
   }
 
+  const campaignParams: unknown[] = [selectedDate];
+  let campaignClientSql = "";
+  if (selectedClient !== "ALL") {
+    campaignParams.push(selectedClient);
+    campaignClientSql = ` AND client_name=$2`;
+  }
+
   const campaigns = await query<CampaignRow>(`
     SELECT campaign_id,MAX(campaign_name) campaign_name,SUM(quantity)::text volume
     FROM osp_monitor_tabulation
-    WHERE reference_date=$1::date AND client_name='FastFlow' AND product_code='ADA'
+    WHERE reference_date=$1::date
+      AND product_code='ADA'
+      ${campaignClientSql}
     GROUP BY campaign_id
     ORDER BY campaign_id
-  `,[selectedDate]);
+  `,campaignParams);
 
   const attemptParams: unknown[] = [selectedDate];
   const attemptWhere = [
     "reference_date=$1::date",
-    "client_name='FastFlow'",
     "product_code='ADA'",
   ];
+  if (selectedClient !== "ALL") {
+    attemptParams.push(selectedClient);
+    attemptWhere.push("client_name=$"+attemptParams.length);
+  }
   if (selectedCampaign !== null) {
     attemptParams.push(selectedCampaign);
     attemptWhere.push("campaign_id=$"+attemptParams.length);
@@ -603,9 +643,12 @@ export default async function AlertCenterPage({
   const attemptBaseParams: unknown[] = [selectedDate];
   const attemptBaseWhere = [
     "reference_date=$1::date",
-    "client_name='FastFlow'",
     "product_code='ADA'",
   ];
+  if (selectedClient !== "ALL") {
+    attemptBaseParams.push(selectedClient);
+    attemptBaseWhere.push("client_name=$"+attemptBaseParams.length);
+  }
   if (selectedCampaign !== null) {
     attemptBaseParams.push(selectedCampaign);
     attemptBaseWhere.push("campaign_id=$"+attemptBaseParams.length);
@@ -615,9 +658,12 @@ export default async function AlertCenterPage({
   const pbxParams: unknown[] = [selectedDate];
   const pbxWhere = [
     "reference_date=$1::date",
-    "client_name='FastFlow'",
     "product_code='ADA'",
   ];
+  if (selectedClient !== "ALL") {
+    pbxParams.push(selectedClient);
+    pbxWhere.push("client_name=$"+pbxParams.length);
+  }
   if (selectedCampaign !== null) {
     pbxParams.push(selectedCampaign);
     pbxWhere.push("campaign_id=$"+pbxParams.length);
@@ -653,7 +699,7 @@ export default async function AlertCenterPage({
     .ac-pill{display:inline-flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid rgba(255,255,255,.16);border-radius:999px;background:rgba(255,255,255,.07);font-size:10px;font-weight:850}
     .ac-live{width:7px;height:7px;border-radius:50%;background:#4ade80;box-shadow:0 0 0 4px rgba(74,222,128,.12),0 0 18px rgba(74,222,128,.55)}
     .ac-tabs{margin-bottom:14px}
-    .ac-filter{display:grid;grid-template-columns:minmax(170px,.65fr) minmax(280px,1.35fr) auto;gap:12px;align-items:end;padding:14px;margin-bottom:14px}
+    .ac-filter{display:grid;grid-template-columns:minmax(160px,.55fr) minmax(180px,.65fr) minmax(260px,1.2fr) auto;gap:12px;align-items:end;padding:14px;margin-bottom:14px}
     .ac-filter .field{min-width:0}
     .ac-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:14px}
     .ac-kpi{position:relative;overflow:hidden;padding:16px;min-height:122px}
@@ -830,18 +876,18 @@ export default async function AlertCenterPage({
           <p>Monitoramento de Attempts e PBX com snapshot automático a cada 15 minutos.</p>
         </div>
         <div className="ac-hero-meta">
-          <span className="ac-pill"><span className="ac-live"/> FastFlow · ADA</span>
+          <span className="ac-pill"><span className="ac-live"/> {selectedClient === "ALL" ? "Todos os clientes" : selectedClient} · ADA</span>
           <span className="ac-pill"><Server size={12}/> 10.195.124.1 · PS02</span>
-          <span className="ac-pill"><ShieldCheck size={12}/> Engine v11</span>
+          <span className="ac-pill"><ShieldCheck size={12}/> Engine v12</span>
         </div>
       </div>
     </section>
 
     <nav className="dashboard-tabs ac-tabs" aria-label="Visões do Alert Center">
-      <Link className={"dashboard-tab "+(view==="attempts"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:selectedProductivity})}>
+      <Link className={"dashboard-tab "+(view==="attempts"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:selectedProductivity,client:selectedClient})}>
         <Activity size={16}/> Attempts
       </Link>
-      <Link className={"dashboard-tab "+(view==="pbx"?"active":"")} href={queryHref({view:"pbx",date:selectedDate,campaign:selectedCampaign})}>
+      <Link className={"dashboard-tab "+(view==="pbx"?"active":"")} href={queryHref({view:"pbx",date:selectedDate,campaign:selectedCampaign,client:selectedClient})}>
         <PhoneCall size={16}/> PBX
       </Link>
     </nav>
@@ -852,6 +898,13 @@ export default async function AlertCenterPage({
       <div className="field">
         <label>Data de referência</label>
         <input className="input" type="date" name="date" defaultValue={selectedDate}/>
+      </div>
+      <div className="field">
+        <label>Cliente</label>
+        <select className="select" name="client" defaultValue={selectedClient}>
+          <option value="ALL">Todos os clientes</option>
+          {clientsResult.rows.map(client=><option key={client.client_name} value={client.client_name}>{client.client_name}</option>)}
+        </select>
       </div>
       <div className="field">
         <label>Campanha</label>
@@ -1011,6 +1064,7 @@ export default async function AlertCenterPage({
         unproductiveVolume={unproductiveVolume}
         selectedDate={selectedDate}
         selectedCampaign={selectedCampaign}
+        selectedClient={selectedClient}
       />
 
       <CrossHeatmap
@@ -1046,7 +1100,7 @@ export default async function AlertCenterPage({
         </section>
         <section className="card ac-etl-card">
           <div className="ac-panel-head"><div><h2>Campanhas no snapshot</h2><p>CampaignIds disponíveis na data selecionada.</p></div><Layers3 size={18}/></div>
-          <div className="ac-campaign-list">{campaigns.rows.map(c=><div className="ac-campaign" key={c.campaign_id}><span className="ac-campaign-id">{c.campaign_id}</span><div><strong>{c.campaign_name}</strong><small>FastFlow · ADA</small></div><b>{integer(n(c.volume))}</b></div>)}</div>
+          <div className="ac-campaign-list">{campaigns.rows.map(c=><div className="ac-campaign" key={c.campaign_id}><span className="ac-campaign-id">{c.campaign_id}</span><div><strong>{c.campaign_name}</strong><small>{selectedClient === "ALL" ? "Todos os clientes" : selectedClient} · ADA</small></div><b>{integer(n(c.volume))}</b></div>)}</div>
         </section>
       </div>
     </>;
@@ -1218,7 +1272,7 @@ export default async function AlertCenterPage({
       </section>
       <section className="card ac-etl-card">
         <div className="ac-panel-head"><div><h2>Campanhas no snapshot</h2><p>CampaignIds disponíveis na data selecionada.</p></div><Layers3 size={18}/></div>
-        <div className="ac-campaign-list">{campaigns.rows.map(c=><div className="ac-campaign" key={c.campaign_id}><span className="ac-campaign-id">{c.campaign_id}</span><div><strong>{c.campaign_name}</strong><small>FastFlow · ADA</small></div><b>{integer(n(c.volume))}</b></div>)}</div>
+        <div className="ac-campaign-list">{campaigns.rows.map(c=><div className="ac-campaign" key={c.campaign_id}><span className="ac-campaign-id">{c.campaign_id}</span><div><strong>{c.campaign_name}</strong><small>{selectedClient === "ALL" ? "Todos os clientes" : selectedClient} · ADA</small></div><b>{integer(n(c.volume))}</b></div>)}</div>
       </section>
     </div>
   </>;
