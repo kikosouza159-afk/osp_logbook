@@ -26,6 +26,7 @@ END $$;
 
 INSERT INTO areas(code,name,sort_order,active)
 VALUES
+  ('OSP','Planejamento Estratégico',5,TRUE),
   ('OTS','Telecom',10,TRUE),
   ('OPC','Curadoria',20,TRUE),
   ('ODE','Desenvolvimento',30,TRUE)
@@ -34,9 +35,13 @@ ON CONFLICT(code) DO UPDATE SET
   sort_order=EXCLUDED.sort_order,
   active=TRUE;
 
-UPDATE areas SET active=FALSE WHERE code NOT IN ('OTS','OPC','ODE');
+UPDATE areas SET active=FALSE WHERE code NOT IN ('OSP','OTS','OPC','ODE');
 
 INSERT INTO incident_problem_types(code,area_code,label,sort_order,active) VALUES
+ ('OSP_MAILING','OSP','Mailing',10,TRUE),
+ ('OSP_FILA_PARADA','OSP','Fila Parada',20,TRUE),
+ ('OSP_CONFIG_CAMPANHA','OSP','Configuração Campanha',30,TRUE),
+ ('OSP_PILOTAGEM','OSP','Pilotagem',40,TRUE),
  ('OTS_CONGESTIONAMENTO','OTS','Congestionamento',10,TRUE),
  ('OTS_CALLANLYSE','OTS','Callanlyse',20,TRUE),
  ('OTS_IMPOSSIVEL_COMPLETAR','OTS','Impossível Completar',30,TRUE),
