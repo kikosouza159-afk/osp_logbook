@@ -157,7 +157,22 @@ export async function getPriorities() {
 }
 
 export async function getAreas() {
-  return (await query<{ code: string; name: string }>("SELECT code, name FROM areas WHERE active = TRUE ORDER BY sort_order")).rows;
+  return (await query<{ code: string; name: string }>(
+    "SELECT code, name FROM areas WHERE active = TRUE ORDER BY sort_order"
+  )).rows;
+}
+
+export async function getProblemTypes() {
+  return (await query<{
+    code:string;
+    area_code:string;
+    label:string;
+  }>(`
+    SELECT code,area_code,label
+    FROM incident_problem_types
+    WHERE active=TRUE
+    ORDER BY area_code,sort_order,label
+  `)).rows;
 }
 
 export async function getAnalysts() {
@@ -186,13 +201,13 @@ export async function getAnalysts() {
   `)).rows;
 }
 
-export async function getIncidents(filters: { q?: string; status?: string; client?: string; portfolio?: string; analyst?: string; product?: string; area?: string; date?: string; openOnly?: boolean } = {}, limit: number | null = 100) {
+export async function getIncidents(filters: { q?: string; status?: string; client?: string; portfolio?: string; analyst?: string; product?: string; area?: string; problem?: string; date?: string; openOnly?: boolean } = {}, limit: number | null = 100) {
   const where: string[] = [];
   const params: unknown[] = [];
   const add = (value: unknown) => { params.push(value); return `$${params.length}`; };
   if (filters.q) {
     const p = add(`%${filters.q}%`);
-    where.push(`(i.title ILIKE ${p} OR i.description ILIKE ${p} OR i.ticket_id ILIKE ${p} OR c.display_name ILIKE ${p})`);
+    where.push(`(i.title ILIKE ${p} OR i.description ILIKE ${p} OR i.ticket_id ILIKE ${p} OR c.display_name ILIKE ${p} OR pt.label ILIKE ${p})`);
   }
   if (filters.status) where.push(`i.status_code = ${add(filters.status)}`);
   if (filters.client) where.push(`i.client_id = ${add(filters.client)}::uuid`);
@@ -211,26 +226,30 @@ export async function getIncidents(filters: { q?: string; status?: string; clien
   if (filters.analyst) where.push(`i.assigned_user_id = ${add(filters.analyst)}::uuid`);
   if (filters.product) where.push(`EXISTS (SELECT 1 FROM incident_products ip2 JOIN products p2 ON p2.id=ip2.product_id WHERE ip2.incident_id=i.id AND p2.code=${add(filters.product)})`);
   if (filters.area) where.push(`i.area_code = ${add(filters.area)}`);
+  if (filters.problem) where.push(`i.problem_type_code = ${add(filters.problem)}`);
   if (filters.date) where.push(`(i.created_at AT TIME ZONE 'America/Sao_Paulo')::date = ${add(filters.date)}::date`);
   if (filters.openOnly) where.push(`s.is_closed=FALSE`);
   const limitClause = limit === null ? "" : `LIMIT ${add(limit)}`;
 
   return (await query<{
     id: string; title: string; client_name: string; ticket_id: string | null; priority_code: string; status_code: string; status_label: string;
-    analyst_name: string | null; products: string | null; area_code: string | null; area_name: string | null; created_at: string; updated_at: string;
+    analyst_name: string | null; products: string | null; area_code: string | null; area_name: string | null;
+    problem_type_code:string|null; problem_type_label:string|null; created_at: string; updated_at: string;
   }>(`
     SELECT i.id, i.title, c.display_name client_name, i.ticket_id, i.priority_code, i.status_code,
-      s.label status_label, u.name analyst_name, i.area_code, a.name area_name, i.created_at::text, i.updated_at::text,
+      s.label status_label, u.name analyst_name, i.area_code, a.name area_name,
+      i.problem_type_code,pt.label problem_type_label,i.created_at::text, i.updated_at::text,
       STRING_AGG(DISTINCT p.code, ', ' ORDER BY p.code) products
     FROM incidents i
     JOIN clients c ON c.id=i.client_id
     JOIN incident_statuses s ON s.code=i.status_code
     LEFT JOIN areas a ON a.code=i.area_code
+    LEFT JOIN incident_problem_types pt ON pt.code=i.problem_type_code
     LEFT JOIN users u ON u.id=i.assigned_user_id
     LEFT JOIN incident_products ip ON ip.incident_id=i.id
     LEFT JOIN products p ON p.id=ip.product_id
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-    GROUP BY i.id, c.display_name, s.label, u.name, a.name
+    GROUP BY i.id, c.display_name, s.label, u.name, a.name,pt.label,pt.label
     ORDER BY i.created_at DESC
     ${limitClause}
   `, params)).rows;
@@ -240,16 +259,20 @@ export async function getIncident(id: string) {
   const incident = (await query<{
     id: string; client_id: string; client_name: string; title: string; description: string; has_ticket: boolean; ticket_id: string | null;
     ticket_url: string | null; ticket_opened_at: string | null; priority_code: string; status_code: string; status_label: string;
-    assigned_user_id: string | null; analyst_name: string | null; area_code: string | null; area_name: string | null; internal_notes: string | null; created_at: string; updated_at: string; products: string | null;
+    assigned_user_id: string | null; analyst_name: string | null; area_code: string | null; area_name: string | null;
+    problem_type_code:string|null; problem_type_label:string|null; internal_notes: string | null; created_at: string; updated_at: string; products: string | null;
   }>(`
     SELECT i.id, i.client_id, c.display_name client_name, i.title, i.description, i.has_ticket, i.ticket_id,
       i.ticket_url, i.ticket_opened_at::text, i.priority_code, i.status_code, s.label status_label,
-      i.assigned_user_id, u.name analyst_name, i.area_code, a.name area_name, i.internal_notes, i.created_at::text, i.updated_at::text,
+      i.assigned_user_id, u.name analyst_name, i.area_code, a.name area_name,
+      i.problem_type_code,pt.label problem_type_label,
+      i.internal_notes, i.created_at::text, i.updated_at::text,
       STRING_AGG(DISTINCT p.code, ', ' ORDER BY p.code) products
     FROM incidents i
     JOIN clients c ON c.id=i.client_id
     JOIN incident_statuses s ON s.code=i.status_code
     LEFT JOIN areas a ON a.code=i.area_code
+    LEFT JOIN incident_problem_types pt ON pt.code=i.problem_type_code
     LEFT JOIN users u ON u.id=i.assigned_user_id
     LEFT JOIN incident_products ip ON ip.incident_id=i.id
     LEFT JOIN products p ON p.id=ip.product_id
