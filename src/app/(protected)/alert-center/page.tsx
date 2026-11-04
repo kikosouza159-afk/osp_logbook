@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   Activity,
   Clock3,
@@ -33,6 +34,11 @@ type RankingRow = {
 
 type HourRow = {
   hour: number;
+  volume: string;
+};
+
+type ProductivityRow = {
+  productivity_class: string;
   volume: string;
 };
 
@@ -171,6 +177,7 @@ export default async function AlertCenterPage({
   const sp = await searchParams;
   const requestedDate = typeof sp.date === "string" ? sp.date : "";
   const requestedCampaign = typeof sp.campaign === "string" ? sp.campaign : "";
+  const requestedProductivity = typeof sp.productivity === "string" ? sp.productivity.toUpperCase() : "ALL";
 
   const latestDateResult = await query<{ reference_date: string | null }>(`
     SELECT MAX(reference_date)::text AS reference_date
@@ -181,6 +188,21 @@ export default async function AlertCenterPage({
 
   const selectedDate = requestedDate || latestDateResult.rows[0]?.reference_date || "";
   const selectedCampaign = /^\d+$/.test(requestedCampaign) ? Number(requestedCampaign) : null;
+
+  const productivityCapability = await query<{ available: boolean }>(`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema='public'
+        AND table_name='osp_monitor_tabulation'
+        AND column_name='productivity_class'
+    ) AS available
+  `);
+  const hasProductivity = Boolean(productivityCapability.rows[0]?.available);
+  const selectedProductivity =
+    hasProductivity && ["PRODUTIVO","IMPRODUTIVO"].includes(requestedProductivity)
+      ? requestedProductivity
+      : "ALL";
 
   if (!selectedDate) {
     return <>
@@ -215,8 +237,29 @@ export default async function AlertCenterPage({
   let campaignSql = "";
   if (selectedCampaign !== null) {
     baseParams.push(selectedCampaign);
-    campaignSql = ` AND campaign_id=$${baseParams.length}`;
+    campaignSql = ` AND campaign_id=${baseParams.length}`;
   }
+
+  const attemptParams = [...baseParams];
+  let productivitySql = "";
+  if (selectedProductivity !== "ALL") {
+    attemptParams.push(selectedProductivity);
+    productivitySql = ` AND productivity_class=${attemptParams.length}`;
+  }
+
+  const productivityCounts = hasProductivity
+    ? await query<ProductivityRow>(`
+        SELECT
+          productivity_class,
+          SUM(quantity)::text AS volume
+        FROM osp_monitor_tabulation
+        WHERE reference_date=$1::date
+          AND client_name='FastFlow'
+          AND product_code='ADA'
+          ${campaignSql}
+        GROUP BY productivity_class
+      `, baseParams)
+    : { rows: [] as ProductivityRow[] };
 
   const [
     summaryResult,
@@ -238,7 +281,8 @@ export default async function AlertCenterPage({
         AND client_name='FastFlow'
         AND product_code='ADA'
         ${campaignSql}
-    `, baseParams),
+        ${productivitySql}
+    `, attemptParams),
 
     query<RankingRow>(`
       SELECT
@@ -249,10 +293,11 @@ export default async function AlertCenterPage({
         AND client_name='FastFlow'
         AND product_code='ADA'
         ${campaignSql}
+        ${productivitySql}
       GROUP BY tabulation
       ORDER BY SUM(quantity) DESC
       LIMIT 10
-    `, baseParams),
+    `, attemptParams),
 
     query<RankingRow>(`
       SELECT
@@ -263,9 +308,10 @@ export default async function AlertCenterPage({
         AND client_name='FastFlow'
         AND product_code='ADA'
         ${campaignSql}
+        ${productivitySql}
       GROUP BY seconds_bucket
       ORDER BY seconds_bucket
-    `, baseParams),
+    `, attemptParams),
 
     query<RankingRow>(`
       SELECT
@@ -290,9 +336,10 @@ export default async function AlertCenterPage({
         AND client_name='FastFlow'
         AND product_code='ADA'
         ${campaignSql}
+        ${productivitySql}
       GROUP BY reference_hour
       ORDER BY reference_hour
-    `, baseParams),
+    `, attemptParams),
 
     query<EtlRow>(`
       SELECT
@@ -323,6 +370,21 @@ export default async function AlertCenterPage({
   const selectedCampaignName = selectedCampaign === null
     ? "Todas as campanhas"
     : campaigns.rows.find((campaign) => campaign.campaign_id === selectedCampaign)?.campaign_name || `Campanha ${selectedCampaign}`;
+
+  const productivityMap = new Map(
+    productivityCounts.rows.map((row) => [row.productivity_class, number(row.volume)])
+  );
+  const productiveVolume = productivityMap.get("PRODUTIVO") || 0;
+  const unproductiveVolume = productivityMap.get("IMPRODUTIVO") || 0;
+  const generalVolume = productiveVolume + unproductiveVolume || totalVolume;
+
+  const productivityHref = (value: "ALL" | "PRODUTIVO" | "IMPRODUTIVO") => {
+    const params = new URLSearchParams();
+    params.set("date", selectedDate);
+    if (selectedCampaign !== null) params.set("campaign", selectedCampaign.toString());
+    if (value !== "ALL") params.set("productivity", value);
+    return `/alert-center?${params.toString()}`;
+  };
 
   return <>
     <style>{`
@@ -399,8 +461,24 @@ export default async function AlertCenterPage({
       .monitor-empty-state{padding:48px 20px}
       .monitor-empty-state h2{color:var(--navy);margin:12px 0 5px}
       .monitor-empty-state p{margin:0}
+      .monitor-productivity-wrap{margin-bottom:16px}
+      .monitor-productivity-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:0 2px 10px}
+      .monitor-productivity-head h2{margin:0;color:var(--navy);font-size:16px}
+      .monitor-productivity-head p{margin:4px 0 0;color:#858a97;font-size:11px}
+      .monitor-productivity-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+      .monitor-productivity-card{position:relative;overflow:hidden;padding:15px 16px;border:1px solid #e7eaf1;border-radius:15px;background:#fff;transition:.2s ease;min-height:105px}
+      .monitor-productivity-card:hover{transform:translateY(-1px);border-color:#cfd5e3}
+      .monitor-productivity-card.active{border-color:rgba(251,92,40,.45);box-shadow:0 10px 28px rgba(0,0,73,.07),inset 0 0 0 1px rgba(251,92,40,.12)}
+      .monitor-productivity-card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:#345f99}
+      .monitor-productivity-card.productive:before{background:#168a5b}
+      .monitor-productivity-card.unproductive:before{background:#fb5c28}
+      .monitor-productivity-card.disabled{opacity:.48;pointer-events:none;filter:grayscale(.2)}
+      .monitor-productivity-card small{display:block;font-size:10px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:#858b98}
+      .monitor-productivity-card strong{display:block;margin-top:8px;font-family:"Avenir Next",Avenir,sans-serif;font-size:27px;color:var(--navy)}
+      .monitor-productivity-card span{display:block;margin-top:6px;font-size:10px;color:#9297a2}
+      .monitor-productivity-note{margin-top:9px;padding:10px 12px;border:1px dashed #f0c7b8;border-radius:11px;background:#fff8f5;color:#8d5a47;font-size:11px}
       @media(max-width:1100px){.monitor-kpis{grid-template-columns:repeat(2,1fr)}.monitor-grid,.monitor-etl{grid-template-columns:1fr}.monitor-filter{grid-template-columns:1fr 1fr auto}}
-      @media(max-width:720px){.monitor-hero-inner{align-items:flex-start;flex-direction:column}.monitor-hero-meta{justify-content:flex-start}.monitor-kpis{grid-template-columns:1fr}.monitor-filter{grid-template-columns:1fr}.monitor-pbx-cards,.monitor-etl-metrics{grid-template-columns:1fr}.monitor-panel{padding:15px}}
+      @media(max-width:720px){.monitor-productivity-cards{grid-template-columns:1fr}.monitor-hero-inner{align-items:flex-start;flex-direction:column}.monitor-hero-meta{justify-content:flex-start}.monitor-kpis{grid-template-columns:1fr}.monitor-filter{grid-template-columns:1fr}.monitor-pbx-cards,.monitor-etl-metrics{grid-template-columns:1fr}.monitor-panel{padding:15px}}
     `}</style>
 
     <section className="card monitor-hero">
@@ -436,6 +514,50 @@ export default async function AlertCenterPage({
       </div>
       <button className="btn btn-primary" type="submit"><Gauge size={16}/> Aplicar</button>
     </form>
+
+    <section className="monitor-productivity-wrap">
+      <div className="monitor-productivity-head">
+        <div>
+          <h2>Filtro de produtividade · Attempts</h2>
+          <p>Classificação baseada exclusivamente no AgentId da chamada.</p>
+        </div>
+      </div>
+
+      <div className="monitor-productivity-cards">
+        <Link
+          href={productivityHref("ALL")}
+          className={`monitor-productivity-card ${selectedProductivity === "ALL" ? "active" : ""}`}
+        >
+          <small>Geral</small>
+          <strong>{integer(generalVolume)}</strong>
+          <span>Todas as chamadas do recorte</span>
+        </Link>
+
+        <Link
+          href={hasProductivity ? productivityHref("PRODUTIVO") : "#"}
+          aria-disabled={!hasProductivity}
+          className={`monitor-productivity-card productive ${selectedProductivity === "PRODUTIVO" ? "active" : ""} ${!hasProductivity ? "disabled" : ""}`}
+        >
+          <small>Produtivo</small>
+          <strong>{hasProductivity ? integer(productiveVolume) : "—"}</strong>
+          <span>AgentId &gt; 0</span>
+        </Link>
+
+        <Link
+          href={hasProductivity ? productivityHref("IMPRODUTIVO") : "#"}
+          aria-disabled={!hasProductivity}
+          className={`monitor-productivity-card unproductive ${selectedProductivity === "IMPRODUTIVO" ? "active" : ""} ${!hasProductivity ? "disabled" : ""}`}
+        >
+          <small>Improdutivo</small>
+          <strong>{hasProductivity ? integer(unproductiveVolume) : "—"}</strong>
+          <span>AgentId = 0</span>
+        </Link>
+      </div>
+
+      {!hasProductivity && <div className="monitor-productivity-note">
+        O painel já está preparado para este filtro. Falta apenas o ETL receber a dimensão de AgentId da origem para separar Produtivo e Improdutivo sem inferência.
+      </div>}
+    </section>
 
     <div className="monitor-kpis">
       <article className="card monitor-kpi orange">
