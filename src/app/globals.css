@@ -5176,7 +5176,7 @@ html[data-theme="dark"] .client-status-filter a.active {
 }
 .incident-area-grid {
   display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
+  grid-template-columns:repeat(4,minmax(0,1fr));
   gap:10px;
 }
 .incident-area-card {
@@ -5232,12 +5232,22 @@ html[data-theme="dark"] .client-status-filter a.active {
   background:#F0F4FA;
   color:#345F99;
 }
-.incident-area-card:nth-child(2) .incident-area-card-icon {
+.incident-area-card.area-osp .incident-area-card-icon {
+  background:#EEF2FA;
+  color:#000049;
+  border-color:rgba(0,0,73,.08);
+}
+.incident-area-card.area-ots .incident-area-card-icon {
+  background:#EAF2FA;
+  color:#345F99;
+  border-color:rgba(52,95,153,.08);
+}
+.incident-area-card.area-opc .incident-area-card-icon {
   background:#FFF4EE;
   color:#E65A2A;
   border-color:rgba(251,92,40,.08);
 }
-.incident-area-card:nth-child(3) .incident-area-card-icon {
+.incident-area-card.area-ode .incident-area-card-icon {
   background:#F1F0FA;
   color:#6759A8;
   border-color:rgba(103,89,168,.08);
@@ -5450,11 +5460,19 @@ html[data-theme="dark"] .incident-area-card-icon {
   color:#9BC9F7;
   border-color:#28425E;
 }
-html[data-theme="dark"] .incident-area-card:nth-child(2) .incident-area-card-icon {
+html[data-theme="dark"] .incident-area-card.area-osp .incident-area-card-icon {
+  background:#242442;
+  color:#D7D7FF;
+}
+html[data-theme="dark"] .incident-area-card.area-ots .incident-area-card-icon {
+  background:#1C3047;
+  color:#9BC9F7;
+}
+html[data-theme="dark"] .incident-area-card.area-opc .incident-area-card-icon {
   background:#38241D;
   color:#FF9E78;
 }
-html[data-theme="dark"] .incident-area-card:nth-child(3) .incident-area-card-icon {
+html[data-theme="dark"] .incident-area-card.area-ode .incident-area-card-icon {
   background:#2A2542;
   color:#C0B7F5;
 }
@@ -5512,4 +5530,9 @@ html[data-theme="dark"] .incident-problem-table-label {
   .incident-classification-head { gap:9px; }
   .incident-classification-step { min-width:48px;font-size:6px; }
   .incident-problem-grid { grid-template-columns:1fr; }
+}
+
+
+@media(max-width:1250px){
+  .incident-area-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
