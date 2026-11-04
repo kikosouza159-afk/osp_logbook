@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   RadioTower,
+  Target,
   Sparkles,
   Code2,
   Network,
@@ -40,6 +41,11 @@ type ProblemType = {
 };
 
 const areaMeta = {
+  OSP: {
+    icon: Target,
+    kicker:"Planejamento Estratégico",
+    description:"Mailing, campanhas, pilotagem e continuidade operacional.",
+  },
   OTS: {
     icon: RadioTower,
     kicker:"Telecom",
@@ -58,6 +64,10 @@ const areaMeta = {
 } as const;
 
 const problemIcons: Record<string, React.ComponentType<{size?:number}>> = {
+  OSP_MAILING: Tags,
+  OSP_FILA_PARADA: CircleStop,
+  OSP_CONFIG_CAMPANHA: ListChecks,
+  OSP_PILOTAGEM: Target,
   OTS_CONGESTIONAMENTO: Network,
   OTS_CALLANLYSE: Waves,
   OTS_IMPOSSIVEL_COMPLETAR: MessageSquareWarning,
