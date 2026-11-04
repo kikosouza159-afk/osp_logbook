@@ -1155,7 +1155,7 @@ export async function createIncidentAction(formData: FormData) {
 
   const parsed = z.object({
     portfolioId:z.string().uuid(),
-    area:z.enum(["OTS","OPC","ODE"]),
+    area:z.enum(["OSP","OTS","OPC","ODE"]),
     problemType:z.string().min(1),
     title:z.string().min(3),
     description:z.string().min(3),
@@ -1280,7 +1280,7 @@ export async function updateIncidentAction(formData: FormData) {
   const parsed = z.object({
     id: z.string().uuid(),
     portfolioId: z.string().uuid(),
-    area:z.enum(["OTS","OPC","ODE"]),
+    area:z.enum(["OSP","OTS","OPC","ODE"]),
     problemType:z.string().min(1),
     title: z.string().min(3),
     description: z.string().min(3),
