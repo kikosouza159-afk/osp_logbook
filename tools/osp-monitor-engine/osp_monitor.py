@@ -71,6 +71,7 @@ SELECT
     CAST(NomeCampanha AS varchar(255)) AS NomeCampanha,
     CAST(PbxDispositionId AS int) AS PbxDispositionId,
     CAST(Retorno AS varchar(500)) AS Retorno,
+    {signaling_expr} AS SignalingExtraInfo,
     CAST(Quantidade AS bigint) AS Quantidade
 FROM {table} WITH (NOLOCK)
 WHERE Data = CAST(GETDATE() AS date);
@@ -520,6 +521,7 @@ def classify_pbx_rows(
             row[6],
             row[7],
             row[8],
+            row[9],
         ))
 
     return result
@@ -590,10 +592,23 @@ def extract_all_sources(
                 ),
             )
 
+            has_signaling_extra_info = source_column_exists(
+                conn,
+                pbx_table,
+                "SignalingExtraInfo",
+            )
+
+            signaling_expr = (
+                "CAST(SignalingExtraInfo AS varchar(100))"
+                if has_signaling_extra_info
+                else "CAST(NULL AS varchar(100))"
+            )
+
             pbx_source = fetch_rows(
                 conn,
                 PBX_SELECT.format(
-                    table=pbx_table
+                    table=pbx_table,
+                    signaling_expr=signaling_expr,
                 ),
             )
 
@@ -641,6 +656,8 @@ def extract_all_sources(
                 ),
                 "pbx_rows": len(pbx_rows),
                 "productivity_dimension": has_productivity,
+                "signaling_extra_info_dimension":
+                    has_signaling_extra_info,
                 "duration_ms": int(
                     (
                         time.monotonic()
@@ -750,13 +767,14 @@ def replace_today(
         campaign_name,
         pbx_disposition_id,
         return_description,
+        signaling_extra_info,
         quantity,
         synced_at
       )
       VALUES(
         %s,%s,%s,%s,%s,
         %s,%s,%s,%s,%s,
-        %s,%s,
+        %s,%s,%s,
         NOW()
       )
     """
