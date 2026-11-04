@@ -982,20 +982,6 @@ export default async function AlertCenterPage({
     return <>
       {hero}
 
-      <section className="ac-productivity">
-        <div className="ac-productivity-grid">
-          <Link className={"ac-productivity-card "+(selectedProductivity==="ALL"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign})}>
-            <small>Geral</small><strong>{integer(generalVolume)}</strong><span>Todas as chamadas</span>
-          </Link>
-          <Link className={"ac-productivity-card productive "+(selectedProductivity==="PRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"PRODUTIVO"})}>
-            <small>Produtivo</small><strong>{integer(productiveVolume)}</strong><span>AgentId &gt; 0</span>
-          </Link>
-          <Link className={"ac-productivity-card unproductive "+(selectedProductivity==="IMPRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"IMPRODUTIVO"})}>
-            <small>Improdutivo</small><strong>{integer(unproductiveVolume)}</strong><span>AgentId = 0</span>
-          </Link>
-        </div>
-      </section>
-
       <div className="ac-kpis">
         <article className="card ac-kpi orange"><div className="ac-kpi-head"><span>Volume total</span><span className="ac-kpi-icon"><Activity size={16}/></span></div><div className="ac-kpi-value">{integer(total)}</div><small>{selectedProductivity==="ALL"?"Geral":selectedProductivity.toLowerCase()}</small></article>
         <article className="card ac-kpi"><div className="ac-kpi-head"><span>TMA geral</span><span className="ac-kpi-icon"><Clock3 size={16}/></span></div><div className="ac-kpi-value">{secondsLabel(tma)}</div><small>{integer(seconds)} segundos acumulados</small></article>
