@@ -6,19 +6,19 @@ import {
 } from "lucide-react";
 import { KpiCard } from "@/components/kpi-card";
 import { HeaderUserAvatar } from "@/components/header-user-avatar";
-import { getDashboardSummary, getIncidents } from "@/lib/queries";
+import { getDashboardSummary, getIncidentIntelligence, getIncidents } from "@/lib/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { clientOptionLabel, formatDateTime, formatTime } from "@/lib/format";
 import { requireUser } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { CHECKLIST_ITEMS } from "@/lib/checklist";
+import { IncidentIntelligenceChart } from "@/components/incident-intelligence-chart";
 
 const areaIcons = {
   OSP: Target,
   OTS: RadioTower,
-  OLAB: FlaskConical,
+  OPC: Sparkles,
   ODE: Code2,
-  OIE: MessagesSquare,
 } as const;
 
 function todaySaoPaulo() {
@@ -672,11 +672,12 @@ export default async function DashboardPage({
     </>;
   }
 
-  const [data, incidents] = await Promise.all([
+  const [data, incidents, incidentIntelligence] = await Promise.all([
     getDashboardSummary(),
     incidentScope === "open"
       ? getIncidents({openOnly:true}, null)
       : getIncidents({date:todaySaoPaulo()}, null),
+    getIncidentIntelligence(30),
   ]);
   const max = Math.max(...data.statuses.map(s=>s.total),1);
 
@@ -708,6 +709,8 @@ export default async function DashboardPage({
         })}
       </div>
     </section>
+
+    <IncidentIntelligenceChart rows={incidentIntelligence} today={todaySaoPaulo()}/>
 
     <div className="grid-2">
       <section className="card panel"><div className="panel-title"><h2>Status de hoje</h2><span className="badge">Atualizado agora</span></div><div className="status-list">{data.statuses.map(s=><div className="status-row" key={s.code}><StatusBadge code={s.code} label={s.label}/><div className="bar"><span style={{width:`${Math.max((s.total/max)*100,s.total?5:0)}%`}}/></div><strong>{s.total}</strong></div>)}</div></section>
