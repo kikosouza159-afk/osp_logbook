@@ -345,13 +345,13 @@ function TabulationPanel({
     </div>
 
     <div className="ac-tab-filter-grid">
-      <Link className={"ac-tab-filter "+(selectedProductivity==="ALL"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:effectiveCampaign,client:selectedClient})+"#tabulacoes"}>
+      <Link className={"ac-tab-filter "+(selectedProductivity==="ALL"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,client:selectedClient})+"#tabulacoes"}>
         <small>Geral</small><strong>{integer(generalVolume)}</strong><span>100% da base</span>
       </Link>
-      <Link className={"ac-tab-filter productive "+(selectedProductivity==="PRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:effectiveCampaign,productivity:"PRODUTIVO",client:selectedClient})+"#tabulacoes"}>
+      <Link className={"ac-tab-filter productive "+(selectedProductivity==="PRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"PRODUTIVO",client:selectedClient})+"#tabulacoes"}>
         <small>Produtivo</small><strong>{integer(productiveVolume)}</strong><span>{generalVolume?percent((productiveVolume/generalVolume)*100):"0,0%"}</span>
       </Link>
-      <Link className={"ac-tab-filter unproductive "+(selectedProductivity==="IMPRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:effectiveCampaign,productivity:"IMPRODUTIVO",client:selectedClient})+"#tabulacoes"}>
+      <Link className={"ac-tab-filter unproductive "+(selectedProductivity==="IMPRODUTIVO"?"active":"")} href={queryHref({view:"attempts",date:selectedDate,campaign:selectedCampaign,productivity:"IMPRODUTIVO",client:selectedClient})+"#tabulacoes"}>
         <small>Improdutivo</small><strong>{integer(unproductiveVolume)}</strong><span>{generalVolume?percent((unproductiveVolume/generalVolume)*100):"0,0%"}</span>
       </Link>
     </div>
