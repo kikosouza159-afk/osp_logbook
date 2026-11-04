@@ -5,34 +5,41 @@ param(
 $ErrorActionPreference = "Stop"
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ScriptPath = Join-Path $BaseDir "osp_monitor.py"
+$ResolverPath = Join-Path $BaseDir "localizar_python.ps1"
 
-if (-not (Test-Path $ScriptPath)) {
+if (-not (Test-Path -LiteralPath $ScriptPath)) {
   throw "Arquivo osp_monitor.py nao encontrado em $BaseDir"
 }
 
-$Python = (Get-Command python -ErrorAction SilentlyContinue).Source
-if (-not $Python) {
-  $Python = (Get-Command py -ErrorAction SilentlyContinue).Source
-}
-if (-not $Python) {
-  throw "Python nao encontrado no PATH da VM."
+if (-not (Test-Path -LiteralPath $ResolverPath)) {
+  throw "Arquivo localizar_python.ps1 nao encontrado em $BaseDir"
 }
 
-if ($Python -like "*py.exe") {
-  $Arguments = "-3 `"$ScriptPath`""
-} else {
-  $Arguments = "`"$ScriptPath`""
+$Python = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ResolverPath -Quiet | Select-Object -First 1)
+
+if (-not $Python) {
+  throw "Python real nao encontrado. Configure PYTHON_EXE no .env."
 }
+
+$Python = $Python.Trim()
+
+if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
+  throw "Python configurado nao existe: $Python"
+}
+
+$Arguments = "`"$ScriptPath`""
 
 $Now = Get-Date
 $FirstScheduledRun = $Now.AddMinutes(15)
 $EndOfDay = Get-Date -Hour 23 -Minute 59 -Second 0
 $Duration = $EndOfDay - $FirstScheduledRun
+
 if ($Duration.TotalMinutes -lt 15) {
   $Duration = New-TimeSpan -Minutes 15
 }
 
-$Action = New-ScheduledTaskAction -Execute $Python -Argument $Arguments -WorkingDirectory $BaseDir
+# Nao usa WorkingDirectory porque a pasta pode ser UNC.
+$Action = New-ScheduledTaskAction -Execute $Python -Argument $Arguments
 $Trigger = New-ScheduledTaskTrigger -Once -At $FirstScheduledRun -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration $Duration
 $Settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 12)
 $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
