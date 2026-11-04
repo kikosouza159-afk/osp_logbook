@@ -778,7 +778,7 @@ export default async function AlertCenterPage({
       `,attemptParams),
 
       query<HourRow>(`
-        SELECT reference_hour::int hour,
+        SELECT reference_hour::int AS "hour",
                SUM(quantity)::text volume,
                SUM(seconds)::text seconds,
                ROUND(SUM(seconds)::numeric/NULLIF(SUM(quantity),0),2)::text tma
@@ -789,7 +789,7 @@ export default async function AlertCenterPage({
       `,attemptParams),
 
       query<MatrixRow>(`
-        SELECT seconds_bucket category,reference_hour::int hour,SUM(quantity)::text volume,SUM(seconds)::text seconds
+        SELECT seconds_bucket category,reference_hour::int AS "hour",SUM(quantity)::text volume,SUM(seconds)::text seconds
         FROM osp_monitor_tabulation
         WHERE ${attemptFilter}
         GROUP BY seconds_bucket,reference_hour
@@ -805,7 +805,7 @@ export default async function AlertCenterPage({
           ORDER BY SUM(quantity) DESC
           LIMIT 12
         )
-        SELECT t.tabulation category,t.reference_hour::int hour,SUM(t.quantity)::text volume,SUM(t.seconds)::text seconds
+        SELECT t.tabulation category,t.reference_hour::int AS "hour",SUM(t.quantity)::text volume,SUM(t.seconds)::text seconds
         FROM osp_monitor_tabulation t
         JOIN top_tabs x ON x.tabulation=t.tabulation
         WHERE ${attemptFilter.replaceAll("reference_date","t.reference_date").replaceAll("client_name","t.client_name").replaceAll("product_code","t.product_code").replaceAll("campaign_id","t.campaign_id").replaceAll("productivity_class","t.productivity_class")}
@@ -960,7 +960,7 @@ export default async function AlertCenterPage({
     `,pbxParams),
 
     query<HourRow>(`
-      SELECT reference_hour::int hour,SUM(quantity)::text volume,'0'::text seconds,'0'::text tma
+      SELECT reference_hour::int AS "hour",SUM(quantity)::text volume,'0'::text seconds,'0'::text tma
       FROM osp_monitor_pbx_return
       WHERE ${pbxFilter}
       GROUP BY reference_hour
@@ -976,7 +976,7 @@ export default async function AlertCenterPage({
         ORDER BY SUM(quantity) DESC
         LIMIT 12
       )
-      SELECT p.return_description category,p.reference_hour::int hour,SUM(p.quantity)::text volume
+      SELECT p.return_description category,p.reference_hour::int AS "hour",SUM(p.quantity)::text volume
       FROM osp_monitor_pbx_return p
       JOIN top_returns x ON x.return_description=p.return_description
       WHERE ${pbxFilter.replaceAll("reference_date","p.reference_date").replaceAll("client_name","p.client_name").replaceAll("product_code","p.product_code").replaceAll("campaign_id","p.campaign_id")}
@@ -993,7 +993,7 @@ export default async function AlertCenterPage({
         ORDER BY SUM(quantity) DESC
         LIMIT 12
       )
-      SELECT COALESCE(NULLIF(p.signaling_extra_info,''),'0') category,p.reference_hour::int hour,SUM(p.quantity)::text volume
+      SELECT COALESCE(NULLIF(p.signaling_extra_info,''),'0') category,p.reference_hour::int AS "hour",SUM(p.quantity)::text volume
       FROM osp_monitor_pbx_return p
       JOIN top_signals x ON x.signaling=COALESCE(NULLIF(p.signaling_extra_info,''),'0')
       WHERE ${pbxFilter.replaceAll("reference_date","p.reference_date").replaceAll("client_name","p.client_name").replaceAll("product_code","p.product_code").replaceAll("campaign_id","p.campaign_id")}
