@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { PencilLine, Plus, Search } from "lucide-react";
-import { getAnalysts, getAreas, getClientPortfolios, getIncidents, getProducts, getStatuses } from "@/lib/queries";
+import { getAnalysts, getAreas, getClientPortfolios, getIncidents, getProblemTypes, getProducts, getStatuses } from "@/lib/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { formatDateTime } from "@/lib/format";
 import { requireUser } from "@/lib/auth";
@@ -10,11 +10,11 @@ export default async function IncidentsPage({ searchParams }: { searchParams: Pr
   const user = await requireUser();
   const sp = await searchParams;
   const get = (k:string) => typeof sp[k] === "string" ? String(sp[k]) : "";
-  const filters = { q:get("q"), status:get("status"), portfolio:get("portfolio"), analyst:get("analyst"), product:get("product"), area:get("area") };
+  const filters = { q:get("q"), status:get("status"), portfolio:get("portfolio"), analyst:get("analyst"), product:get("product"), area:get("area"), problem:get("problem") };
   const deleted = get("deleted");
   const canEdit = user.role === "ADMIN" || user.role === "ANALYST";
-  const [incidents, portfolios, analysts, products, statuses, areas] = await Promise.all([
-    getIncidents(filters,100),getClientPortfolios(),getAnalysts(),getProducts(),getStatuses(),getAreas()
+  const [incidents, portfolios, analysts, products, statuses, areas, problemTypes] = await Promise.all([
+    getIncidents(filters,100),getClientPortfolios(),getAnalysts(),getProducts(),getStatuses(),getAreas(),getProblemTypes()
   ]);
 
   return <>
@@ -23,7 +23,8 @@ export default async function IncidentsPage({ searchParams }: { searchParams: Pr
     <form className="card filters" method="get">
       <div className="field filter-search"><label>Pesquisar</label><input className="input" name="q" defaultValue={filters.q} placeholder="Cliente, chamado, título ou descrição"/></div>
       <div className="field"><label>Status</label><select className="select" name="status" defaultValue={filters.status}><option value="">Todos</option>{statuses.map(s=><option key={s.code} value={s.code}>{s.label}</option>)}</select></div>
-      <div className="field"><label>Área</label><select className="select" name="area" defaultValue={filters.area}><option value="">Todas</option>{areas.map(a=><option key={a.code} value={a.code}>{a.name}</option>)}</select></div>
+      <div className="field"><label>Área responsável</label><select className="select" name="area" defaultValue={filters.area}><option value="">Todas</option>{areas.map(a=><option key={a.code} value={a.code}>{a.name} ({a.code})</option>)}</select></div>
+      <div className="field"><label>Tipo de problema</label><select className="select" name="problem" defaultValue={filters.problem}><option value="">Todos</option>{areas.map(area=><optgroup key={area.code} label={`${area.name} (${area.code})`}>{problemTypes.filter(problem=>problem.area_code===area.code).map(problem=><option key={problem.code} value={problem.code}>{problem.label}</option>)}</optgroup>)}</select></div>
       <div className="field"><label>Cliente</label><select className="select" name="portfolio" defaultValue={filters.portfolio}><option value="">Todos</option>{portfolios.map(portfolio=><option key={portfolio.id} value={portfolio.id}>{portfolio.client_name} · {portfolio.product_code}</option>)}</select></div>
       <div className="field"><label>Produto</label><select className="select" name="product" defaultValue={filters.product}><option value="">Todos</option>{products.map(p=><option key={p.id} value={p.code}>{p.name}</option>)}</select></div>
       <div className="field"><label>Analista</label><select className="select" name="analyst" defaultValue={filters.analyst}><option value="">Todos</option>{analysts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
@@ -31,10 +32,11 @@ export default async function IncidentsPage({ searchParams }: { searchParams: Pr
     </form>
 
     <section className="card table-card" style={{marginTop:0}}>
-      <div className="table-wrap"><table><thead><tr><th>Data/Hora</th><th>Área</th><th>Cliente</th><th>Produto</th><th>Título</th><th>Chamado</th><th>Analista</th><th>Prioridade</th><th>Status</th>{canEdit && <th>Ações</th>}</tr></thead><tbody>
+      <div className="table-wrap"><table><thead><tr><th>Data/Hora</th><th>Área</th><th>Problema</th><th>Cliente</th><th>Produto</th><th>Título</th><th>Chamado</th><th>Analista</th><th>Prioridade</th><th>Status</th>{canEdit && <th>Ações</th>}</tr></thead><tbody>
         {incidents.map(i=><tr key={i.id}>
           <td>{formatDateTime(i.created_at)}</td>
-          <td>{i.area_code ? <span className="badge">{i.area_code}</span> : "—"}</td>
+          <td>{i.area_code ? <span className={`badge incident-area-badge area-${i.area_code.toLowerCase()}`}>{i.area_name||i.area_code} · {i.area_code}</span> : "—"}</td>
+          <td>{i.problem_type_label ? <span className="incident-problem-table-label">{i.problem_type_label}</span> : <span className="client-empty-value">Não classificado</span>}</td>
           <td><strong>{i.client_name}</strong></td>
           <td>{i.products||"—"}</td>
           <td><Link prefetch={false} href={`/incidents/${i.id}`}>{i.title}</Link></td>
