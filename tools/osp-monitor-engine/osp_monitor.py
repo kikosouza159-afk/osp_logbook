@@ -41,6 +41,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("osp-monitor")
 
+ENGINE_VERSION = "v11"
+
 
 TABULATION_SELECT = """
 SELECT
@@ -285,6 +287,7 @@ def create_run(
             "multi_server_database_"
             "delete_today_and_replace"
         ),
+        "engine_version": ENGINE_VERSION,
         "interval_minutes": 15,
         "connections": [
             {
@@ -668,13 +671,16 @@ def extract_all_sources(
 
             log.info(
                 "[%s/%s] %s / %s OK | "
-                "Tabulacao=%s | PBX=%s",
+                "Tabulacao=%s | PBX=%s | "
+                "Produtividade=%s | SignalingExtraInfo=%s",
                 index,
                 total,
                 host,
                 database,
                 len(tabulation_rows),
                 len(pbx_rows),
+                "SIM" if has_productivity else "NAO",
+                "SIM" if has_signaling_extra_info else "NAO",
             )
 
         except Exception as exc:
@@ -834,8 +840,8 @@ def main() -> int:
 
     try:
         log.info(
-            "OSP Monitor Engine iniciado. "
-            "RunId=%s",
+            "OSP Monitor Engine %s iniciado. RunId=%s",
+            ENGINE_VERSION,
             run_id,
         )
 
