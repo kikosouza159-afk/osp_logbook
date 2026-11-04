@@ -208,10 +208,25 @@ export function IncidentIntelligenceChart({
   const labelEvery=range===7 ? 1 : range===14 ? 2 : 5;
 
   function pathFor(key:string) {
-    return dates.map((day,index)=>{
-      const value=values.get(day)?.get(key)??0;
-      return `${index===0?"M":"L"} ${xAt(index).toFixed(2)} ${yAt(value).toFixed(2)}`;
-    }).join(" ");
+    const points=dates.map((day,index)=>({
+      x:xAt(index),
+      y:yAt(values.get(day)?.get(key)??0),
+    }));
+
+    if(!points.length) return "";
+    if(points.length===1) return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+
+    let path=`M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+
+    for(let index=0;index<points.length-1;index++) {
+      const current=points[index];
+      const next=points[index+1];
+      const middleX=(current.x+next.x)/2;
+
+      path += ` C ${middleX.toFixed(2)} ${current.y.toFixed(2)}, ${middleX.toFixed(2)} ${next.y.toFixed(2)}, ${next.x.toFixed(2)} ${next.y.toFixed(2)}`;
+    }
+
+    return path;
   }
 
   function toggleSeries(key:string) {
