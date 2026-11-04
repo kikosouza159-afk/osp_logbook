@@ -133,7 +133,7 @@ export function IncidentClassificationSelector({
         const meta=areaMeta[item.code as keyof typeof areaMeta];
         const Icon=meta?.icon ?? CircleAlert;
         const active=area===item.code;
-        return <label className={`incident-area-card ${active ? "selected" : ""}`} key={item.code}>
+        return <label className={`incident-area-card area-${item.code.toLowerCase()} ${active ? "selected" : ""}`} key={item.code}>
           <input
             type="radio"
             name="area"
@@ -186,7 +186,7 @@ export function IncidentClassificationSelector({
         })}
       </div> : <div className="incident-problem-empty">
         <CircleAlert size={20}/>
-        <span>Escolha Telecom, Curadoria ou Desenvolvimento para abrir a matriz de problemas.</span>
+        <span>Escolha Planejamento Estratégico, Telecom, Curadoria ou Desenvolvimento para abrir a matriz de problemas.</span>
       </div>}
     </div>
   </div>;
