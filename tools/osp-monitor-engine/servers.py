@@ -6,13 +6,18 @@ from typing import Any
 
 
 # Uma linha = um vinculo Servidor + Cliente + Banco + Produto.
+
+# Modo temporario de ativacao seletiva.
+# Enquanto este conjunto tiver IDs, somente essas fontes entram no ETL.
+# FastFlow-only no momento.
+ACTIVE_SOURCE_IDS = {"ADA-02"}
 #
 # Em servidores/bancos compartilhados, preencha campaign_ids e/ou
 # campaign_name_contains para separar cada cliente/produto com seguranca.
 
 SOURCES: list[dict[str, Any]] = [
     {"source_id":"ADA-01","host":"10.196.174.12","client":"SETRA","database":"ProfessionalServices02","product":"ADA","enabled":True,"campaign_ids":[],"campaign_name_contains":[]},
-    {"source_id":"ADA-02","host":"10.195.124.1","client":"FastFlow","database":"ProfessionalServices02","product":"ADA","enabled":True,"campaign_ids":[],"campaign_name_contains":[]},
+    {"source_id":"ADA-02","host":"10.195.124.1","client":"FastFlow","database":"ProfessionalServices02","product":"ADA","enabled":True,"campaign_ids":[202,203,213],"campaign_name_contains":[]},
     {"source_id":"ADA-03","host":"10.195.124.1","client":"PagBank","database":"ProfessionalServices02","product":"ADA","enabled":True,"campaign_ids":[],"campaign_name_contains":[]},
     {"source_id":"ADA-04","host":"10.195.202.11","client":"Boticario","database":"ProfessionalServices02","product":"ADA","enabled":True,"campaign_ids":[],"campaign_name_contains":[]},
     {"source_id":"ADA-05","host":"10.195.114.12","client":"Energisa","database":"ProfessionalServices02","product":"ADA","enabled":True},
@@ -52,7 +57,20 @@ SOURCES: list[dict[str, Any]] = [
 
 
 def enabled_sources() -> list[dict[str, Any]]:
-    return [source for source in SOURCES if source.get("enabled", True)]
+    enabled = [
+        source
+        for source in SOURCES
+        if source.get("enabled", True)
+    ]
+
+    if ACTIVE_SOURCE_IDS:
+        return [
+            source
+            for source in enabled
+            if source.get("source_id") in ACTIVE_SOURCE_IDS
+        ]
+
+    return enabled
 
 
 def _has_rule(source: dict[str, Any]) -> bool:
