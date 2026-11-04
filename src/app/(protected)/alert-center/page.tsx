@@ -285,6 +285,11 @@ function DurationComboChart({ rows }: { rows: DurationRow[] }) {
 }
 
 function HourPulse({ rows, title }: { rows: HourRow[]; title: string }) {
+  const map = new Map(rows.map(row => [row.hour,row]));
+  const start = rows.length ? Math.min(...rows.map(row=>row.hour)) : 0;
+  const end = rows.length ? Math.max(...rows.map(row=>row.hour)) : -1;
+  const hours = rows.length ? Array.from({length:end-start+1},(_,index)=>start+index) : [];
+
   return <section className="card ac-panel">
     <div className="ac-panel-head">
       <div>
@@ -295,23 +300,24 @@ function HourPulse({ rows, title }: { rows: HourRow[]; title: string }) {
     </div>
 
     <div className="ac-hour-pulse">
-      {rows.map((row,index) => {
-        const current = n(row.volume);
-        const previous = index ? n(rows[index-1].volume) : 0;
+      {hours.map((hour,index) => {
+        const row = map.get(hour);
+        const current = n(row?.volume);
+        const previous = index ? n(map.get(hour-1)?.volume) : 0;
         const delta = index ? variation(current,previous) : {pct:0,state:"stable" as const,text:"BASE"};
-        return <article className={"ac-hour-card " + delta.state} key={row.hour}>
+        return <article className={"ac-hour-card " + delta.state} key={hour}>
           <div className="ac-hour-card-head">
-            <strong>{String(row.hour).padStart(2,"0")}h</strong>
+            <strong>{String(hour).padStart(2,"0")}h</strong>
             <span className={"ac-delta " + delta.state}>{delta.text}</span>
           </div>
           <b>{integer(current)}</b>
           <div className="ac-hour-card-foot">
-            <span>TMA {secondsLabel(n(row.tma))}</span>
+            <span>TMA {secondsLabel(n(row?.tma))}</span>
             <span>{index ? "Anterior " + integer(previous) : "Primeira hora"}</span>
           </div>
         </article>;
       })}
-      {!rows.length && <div className="ac-empty">Sem horas carregadas.</div>}
+      {!hours.length && <div className="ac-empty">Sem horas carregadas.</div>}
     </div>
   </section>;
 }
@@ -328,7 +334,10 @@ function HourMatrix({
   limit?: number;
 }) {
   const categories = Array.from(new Set(rows.map(r => r.category))).slice(0,limit);
-  const hours = Array.from(new Set(rows.map(r => r.hour))).sort((a,b)=>a-b);
+  const rawHours = Array.from(new Set(rows.map(r => r.hour))).sort((a,b)=>a-b);
+  const hours = rawHours.length
+    ? Array.from({length:rawHours[rawHours.length-1]-rawHours[0]+1},(_,index)=>rawHours[0]+index)
+    : [];
   const map = new Map(rows.map(r => [r.category + "|" + r.hour, n(r.volume)]));
 
   return <section className="card ac-panel ac-matrix-panel">
@@ -350,8 +359,7 @@ function HourMatrix({
             <th title={category}>{category}</th>
             {hours.map((hour,index) => {
               const value = map.get(category+"|"+hour) || 0;
-              const previousHour = hours[index-1];
-              const previous = index ? (map.get(category+"|"+previousHour) || 0) : 0;
+              const previous = index ? (map.get(category+"|"+(hour-1)) || 0) : 0;
               const delta = index ? variation(value,previous) : {pct:0,state:"stable" as const,text:"BASE"};
               return <td key={hour}>
                 <div className={"ac-matrix-cell " + delta.state} title={category + " · " + hour + "h · " + integer(value) + (index ? " · " + delta.text + " vs hora anterior" : "")}>
