@@ -41,7 +41,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("osp-monitor")
 
-ENGINE_VERSION = "v11"
+ENGINE_VERSION = "v12"
 
 
 TABULATION_SELECT = """
@@ -58,7 +58,8 @@ SELECT
     CAST(Fx_Segundos AS varchar(150)) AS Fx_Segundos,
     CAST(Quantidade AS bigint) AS Quantidade,
     CAST(Segundos AS bigint) AS Segundos,
-    {productivity_expr} AS Produtividade
+    {productivity_expr} AS Produtividade,
+    {client_expr} AS Cliente
 FROM {table} WITH (NOLOCK)
 WHERE Data = CAST(GETDATE() AS date);
 """
@@ -74,7 +75,8 @@ SELECT
     CAST(PbxDispositionId AS int) AS PbxDispositionId,
     CAST(Retorno AS varchar(500)) AS Retorno,
     {signaling_expr} AS SignalingExtraInfo,
-    CAST(Quantidade AS bigint) AS Quantidade
+    CAST(Quantidade AS bigint) AS Quantidade,
+    {client_expr} AS Cliente
 FROM {table} WITH (NOLOCK)
 WHERE Data = CAST(GETDATE() AS date);
 """
@@ -471,11 +473,17 @@ def classify_tabulation_rows(
             campaign_name,
         )
 
+        source_client = (
+            str(row[13]).strip()
+            if row[13] is not None and str(row[13]).strip()
+            else source["client"]
+        )
+
         result.append((
             host,
             row[1],
             database,
-            source["client"],
+            source_client,
             source["product"],
             row[2],
             row[3],
@@ -511,11 +519,17 @@ def classify_pbx_rows(
             campaign_name,
         )
 
+        source_client = (
+            str(row[10]).strip()
+            if row[10] is not None and str(row[10]).strip()
+            else source["client"]
+        )
+
         result.append((
             host,
             row[1],
             database,
-            source["client"],
+            source_client,
             source["product"],
             row[2],
             row[3],
@@ -587,11 +601,24 @@ def extract_all_sources(
                 else "CAST(NULL AS varchar(20))"
             )
 
+            has_tabulation_client = source_column_exists(
+                conn,
+                tabulation_table,
+                "Cliente",
+            )
+
+            tabulation_client_expr = (
+                "CAST(Cliente AS varchar(150))"
+                if has_tabulation_client
+                else "CAST(NULL AS varchar(150))"
+            )
+
             tabulation_source = fetch_rows(
                 conn,
                 TABULATION_SELECT.format(
                     table=tabulation_table,
                     productivity_expr=productivity_expr,
+                    client_expr=tabulation_client_expr,
                 ),
             )
 
@@ -607,11 +634,24 @@ def extract_all_sources(
                 else "CAST(NULL AS varchar(100))"
             )
 
+            has_pbx_client = source_column_exists(
+                conn,
+                pbx_table,
+                "Cliente",
+            )
+
+            pbx_client_expr = (
+                "CAST(Cliente AS varchar(150))"
+                if has_pbx_client
+                else "CAST(NULL AS varchar(150))"
+            )
+
             pbx_source = fetch_rows(
                 conn,
                 PBX_SELECT.format(
                     table=pbx_table,
                     signaling_expr=signaling_expr,
+                    client_expr=pbx_client_expr,
                 ),
             )
 
@@ -661,6 +701,10 @@ def extract_all_sources(
                 "productivity_dimension": has_productivity,
                 "signaling_extra_info_dimension":
                     has_signaling_extra_info,
+                "tabulation_client_dimension":
+                    has_tabulation_client,
+                "pbx_client_dimension":
+                    has_pbx_client,
                 "duration_ms": int(
                     (
                         time.monotonic()
@@ -672,7 +716,8 @@ def extract_all_sources(
             log.info(
                 "[%s/%s] %s / %s OK | "
                 "Tabulacao=%s | PBX=%s | "
-                "Produtividade=%s | SignalingExtraInfo=%s",
+                "Produtividade=%s | SignalingExtraInfo=%s | "
+                "Cliente=%s/%s",
                 index,
                 total,
                 host,
@@ -681,6 +726,8 @@ def extract_all_sources(
                 len(pbx_rows),
                 "SIM" if has_productivity else "NAO",
                 "SIM" if has_signaling_extra_info else "NAO",
+                "SIM" if has_tabulation_client else "NAO",
+                "SIM" if has_pbx_client else "NAO",
             )
 
         except Exception as exc:
