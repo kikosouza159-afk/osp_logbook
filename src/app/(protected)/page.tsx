@@ -1,7 +1,7 @@
 import Link from "next/link";
 import {
   BookOpenCheck, Siren, Wrench, Clock3, CheckCircle2, Building2, Radar, Bot, Plus, RefreshCw,
-  Target, RadioTower, FlaskConical, Code2, MessagesSquare, Layers3, ClipboardCheck,
+  Target, RadioTower, Sparkles, FlaskConical, Code2, MessagesSquare, Layers3, ClipboardCheck,
   UsersRound, ChartNoAxesColumnIncreasing, CalendarDays, CalendarRange, ArrowUpRight
 } from "lucide-react";
 import { KpiCard } from "@/components/kpi-card";
