@@ -40,7 +40,7 @@ INSERT INTO incident_problem_types(code,area_code,label,sort_order,active) VALUE
  ('OTS_CONGESTIONAMENTO','OTS','Congestionamento',10,TRUE),
  ('OTS_CALLANLYSE','OTS','Callanlyse',20,TRUE),
  ('OTS_IMPOSSIVEL_COMPLETAR','OTS','Impossível Completar',30,TRUE),
- ('OTS_LINHA_MUD','OTS','Linha Mud',40,TRUE),
+ ('OTS_LINHA_MUD','OTS','Linha Muda',40,TRUE),
  ('OTS_RUIDO','OTS','Ruído',50,TRUE),
  ('OTS_CANAIS','OTS','Canais',60,TRUE),
  ('OTS_OUTROS','OTS','Outros',70,TRUE),
