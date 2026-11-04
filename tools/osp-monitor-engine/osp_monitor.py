@@ -7,13 +7,20 @@ import socket
 import sys
 import time
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 import pyodbc
 import psycopg
 from dotenv import load_dotenv
+
+from servers import (
+    resolve_assignment,
+    unique_enabled_hosts,
+    validate_server_config,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 ENV_FILE = BASE_DIR / ".env"
@@ -67,11 +74,13 @@ FROM {table} WITH (NOLOCK)
 WHERE Data = CAST(GETDATE() AS date);
 """
 
+
 def required(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
         raise RuntimeError(f"Variavel obrigatoria nao configurada: {name}")
     return value
+
 
 def env_bool(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
@@ -79,17 +88,24 @@ def env_bool(name: str, default: bool = False) -> bool:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "sim", "on"}
 
+
 def safe_source_table(value: str, label: str) -> str:
     parts = value.split(".")
     if len(parts) != 3:
         raise RuntimeError(f"{label} deve estar no formato Banco.Schema.Tabela")
+
     for part in parts:
         if not part or not part.replace("_", "").isalnum():
             raise RuntimeError(f"{label} possui identificador invalido: {value}")
+
     return ".".join(f"[{part}]" for part in parts)
 
-def sqlserver_connection_string() -> str:
-    host = required("SQLSERVER_HOST")
+
+def sao_paulo_today():
+    return datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+
+
+def sqlserver_connection_string(host: str) -> str:
     port = os.getenv("SQLSERVER_PORT", "").strip()
     server = f"{host},{port}" if port else host
     driver = os.getenv("SQLSERVER_DRIVER", "ODBC Driver 17 for SQL Server").strip()
@@ -105,6 +121,7 @@ def sqlserver_connection_string() -> str:
         f"Encrypt={encrypt}",
         f"TrustServerCertificate={trust_cert}",
     ]
+
     if auth == "trusted":
         parts.append("Trusted_Connection=yes")
     elif auth == "sql":
@@ -114,14 +131,17 @@ def sqlserver_connection_string() -> str:
         ])
     else:
         raise RuntimeError("SQLSERVER_AUTH deve ser 'sql' ou 'trusted'.")
+
     return ";".join(parts) + ";"
 
-def connect_sqlserver() -> pyodbc.Connection:
+
+def connect_sqlserver(host: str) -> pyodbc.Connection:
     return pyodbc.connect(
-        sqlserver_connection_string(),
+        sqlserver_connection_string(host),
         timeout=int(os.getenv("SQLSERVER_CONNECTION_TIMEOUT", "20")),
         autocommit=True,
     )
+
 
 def connect_neon() -> psycopg.Connection:
     return psycopg.connect(
@@ -130,19 +150,27 @@ def connect_neon() -> psycopg.Connection:
         application_name="osp-monitor-engine",
     )
 
-def sql_today(conn: pyodbc.Connection) -> date:
+
+def sql_today(conn: pyodbc.Connection):
     cursor = conn.cursor()
     cursor.timeout = int(os.getenv("SQLSERVER_QUERY_TIMEOUT", "180"))
     row = cursor.execute("SELECT CAST(GETDATE() AS date)").fetchone()
+
     if not row:
         raise RuntimeError("Nao foi possivel obter a data atual do SQL Server.")
+
     return row[0]
 
-def fetch_rows(conn: pyodbc.Connection, sql_text: str) -> list[tuple[Any, ...]]:
+
+def fetch_rows(
+    conn: pyodbc.Connection,
+    sql_text: str,
+) -> list[tuple[Any, ...]]:
     cursor = conn.cursor()
     cursor.timeout = int(os.getenv("SQLSERVER_QUERY_TIMEOUT", "180"))
     cursor.execute(sql_text)
     return [tuple(row) for row in cursor.fetchall()]
+
 
 def write_status(payload: dict[str, Any]) -> None:
     STATUS_FILE.write_text(
@@ -155,7 +183,22 @@ def write_status(payload: dict[str, Any]) -> None:
         encoding="utf-8",
     )
 
-def create_run(pg: psycopg.Connection, run_id: uuid.UUID, source_date: date) -> None:
+
+def create_run(
+    pg: psycopg.Connection,
+    run_id: uuid.UUID,
+    source_date,
+    hosts: list[str],
+) -> None:
+    metadata = {
+        "strategy": "multi_server_delete_today_and_replace",
+        "interval_minutes": 15,
+        "configured_hosts": hosts,
+        "configured_host_count": len(hosts),
+        "tabulation_source": os.getenv("TABULATION_SOURCE_TABLE"),
+        "pbx_source": os.getenv("PBX_SOURCE_TABLE"),
+    }
+
     with pg.cursor() as cur:
         cur.execute(
             """
@@ -167,27 +210,41 @@ def create_run(pg: psycopg.Connection, run_id: uuid.UUID, source_date: date) -> 
             (
                 run_id,
                 source_date,
-                os.getenv("SQLSERVER_HOST"),
+                f"MULTI_SERVER:{len(hosts)}",
                 socket.gethostname(),
-                json.dumps({
-                    "strategy": "delete_today_and_replace",
-                    "interval_minutes": 15,
-                    "tabulation_source": os.getenv("TABULATION_SOURCE_TABLE"),
-                    "pbx_source": os.getenv("PBX_SOURCE_TABLE"),
-                }),
+                json.dumps(metadata, ensure_ascii=False),
             ),
         )
 
-def update_source_counts(pg, run_id, tabulation_rows, pbx_rows) -> None:
+
+def update_source_counts(
+    pg,
+    run_id,
+    tabulation_rows,
+    pbx_rows,
+    server_results,
+) -> None:
     with pg.cursor() as cur:
         cur.execute(
             """
             UPDATE osp_monitor_etl_control
-            SET rows_tabulation=%s, rows_pbx_return=%s
+            SET rows_tabulation=%s,
+                rows_pbx_return=%s,
+                metadata=metadata || %s::jsonb
             WHERE run_id=%s
             """,
-            (tabulation_rows, pbx_rows, run_id),
+            (
+                tabulation_rows,
+                pbx_rows,
+                json.dumps(
+                    {"server_results": server_results},
+                    ensure_ascii=False,
+                    default=str,
+                ),
+                run_id,
+            ),
         )
+
 
 def finish_run(
     pg,
@@ -226,46 +283,225 @@ def finish_run(
             ),
         )
 
-def chunks(rows: list[tuple[Any, ...]], size: int) -> Iterable[list[tuple[Any, ...]]]:
+
+def chunks(
+    rows: list[tuple[Any, ...]],
+    size: int,
+) -> Iterable[list[tuple[Any, ...]]]:
     for index in range(0, len(rows), size):
         yield rows[index:index + size]
 
-def validate_sources(source_date, tabulation_rows, pbx_rows) -> None:
-    if not env_bool("ALLOW_EMPTY_SOURCE", False):
-        missing = []
-        if not tabulation_rows:
-            missing.append("OSP_Alerta_Painel")
-        if not pbx_rows:
-            missing.append("Osp_Alerta_Retorno_Painel")
-        if missing:
-            raise RuntimeError(
-                "Carga cancelada por seguranca. Fonte(s) sem registros para "
-                f"{source_date}: {', '.join(missing)}. O Neon foi preservado."
+
+def ensure_rows(
+    host: str,
+    source_date,
+    label: str,
+    rows: list[tuple[Any, ...]],
+) -> None:
+    if not rows and not env_bool("ALLOW_EMPTY_SOURCE", False):
+        raise RuntimeError(
+            f"{host}: {label} retornou zero registros para {source_date}. "
+            "Carga cancelada; Neon preservado."
+        )
+
+    if any(row[2] != source_date for row in rows):
+        raise RuntimeError(
+            f"{host}: {label} retornou registros fora da data {source_date}."
+        )
+
+
+def classify_tabulation_rows(
+    host: str,
+    rows: list[tuple[Any, ...]],
+) -> list[tuple[Any, ...]]:
+    result: list[tuple[Any, ...]] = []
+
+    for row in rows:
+        campaign_id = int(row[4])
+        campaign_name = row[5]
+        assignment = resolve_assignment(host, campaign_id, campaign_name)
+
+        result.append((
+            host,
+            row[1],
+            assignment["client"],
+            assignment["product"],
+            row[2],
+            row[3],
+            row[4],
+            row[5],
+            row[6],
+            row[7],
+            row[8],
+            row[9],
+            row[10],
+            row[11],
+        ))
+
+    return result
+
+
+def classify_pbx_rows(
+    host: str,
+    rows: list[tuple[Any, ...]],
+) -> list[tuple[Any, ...]]:
+    result: list[tuple[Any, ...]] = []
+
+    for row in rows:
+        campaign_id = int(row[4])
+        campaign_name = row[5]
+        assignment = resolve_assignment(host, campaign_id, campaign_name)
+
+        result.append((
+            host,
+            row[1],
+            assignment["client"],
+            assignment["product"],
+            row[2],
+            row[3],
+            row[4],
+            row[5],
+            row[6],
+            row[7],
+            row[8],
+        ))
+
+    return result
+
+
+def extract_all_servers(
+    source_date,
+    tabulation_table: str,
+    pbx_table: str,
+    hosts: list[str],
+):
+    all_tabulation: list[tuple[Any, ...]] = []
+    all_pbx: list[tuple[Any, ...]] = []
+    server_results: list[dict[str, Any]] = []
+
+    for index, host in enumerate(hosts, start=1):
+        conn = None
+        started = time.monotonic()
+
+        try:
+            log.info(
+                "[%s/%s] Conectando ao servidor %s...",
+                index,
+                len(hosts),
+                host,
             )
 
-    for label, rows in [("Tabulacao", tabulation_rows), ("Retorno PBX", pbx_rows)]:
-        if any(row[2] != source_date for row in rows):
-            raise RuntimeError(f"{label}: origem retornou registros fora da data {source_date}.")
+            conn = connect_sqlserver(host)
+            remote_date = sql_today(conn)
+
+            if remote_date != source_date:
+                raise RuntimeError(
+                    f"{host}: data SQL Server={remote_date}, esperada={source_date}."
+                )
+
+            tabulation_source = fetch_rows(
+                conn,
+                TABULATION_SELECT.format(table=tabulation_table),
+            )
+            pbx_source = fetch_rows(
+                conn,
+                PBX_SELECT.format(table=pbx_table),
+            )
+
+            ensure_rows(
+                host,
+                source_date,
+                "OSP_Alerta_Painel",
+                tabulation_source,
+            )
+            ensure_rows(
+                host,
+                source_date,
+                "Osp_Alerta_Retorno_Painel",
+                pbx_source,
+            )
+
+            tabulation_rows = classify_tabulation_rows(
+                host,
+                tabulation_source,
+            )
+            pbx_rows = classify_pbx_rows(
+                host,
+                pbx_source,
+            )
+
+            all_tabulation.extend(tabulation_rows)
+            all_pbx.extend(pbx_rows)
+
+            result = {
+                "host": host,
+                "status": "SUCCESS",
+                "tabulation_rows": len(tabulation_rows),
+                "pbx_rows": len(pbx_rows),
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            }
+            server_results.append(result)
+
+            log.info(
+                "[%s/%s] %s OK | Tabulacao=%s | PBX=%s",
+                index,
+                len(hosts),
+                host,
+                len(tabulation_rows),
+                len(pbx_rows),
+            )
+
+        except Exception as exc:
+            server_results.append({
+                "host": host,
+                "status": "ERROR",
+                "error": str(exc),
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            })
+            raise
+
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    return all_tabulation, all_pbx, server_results
+
 
 def replace_today(pg, source_date, tabulation_rows, pbx_rows):
-    batch_size = max(100, min(int(os.getenv("INSERT_BATCH_SIZE", "1000")), 5000))
+    batch_size = max(
+        100,
+        min(int(os.getenv("INSERT_BATCH_SIZE", "1000")), 5000),
+    )
 
     insert_tabulation = """
       INSERT INTO osp_monitor_tabulation(
-        server_ip,server_name,reference_date,reference_hour,
-        campaign_id,campaign_name,route,disposition_id,
-        tabulation,seconds_bucket,quantity,seconds,synced_at
+        server_ip,server_name,client_name,product_code,
+        reference_date,reference_hour,campaign_id,campaign_name,
+        route,disposition_id,tabulation,seconds_bucket,
+        quantity,seconds,synced_at
       )
-      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+      VALUES(
+        %s,%s,%s,%s,
+        %s,%s,%s,%s,
+        %s,%s,%s,%s,
+        %s,%s,NOW()
+      )
     """
 
     insert_pbx = """
       INSERT INTO osp_monitor_pbx_return(
-        server_ip,server_name,reference_date,reference_hour,
-        campaign_id,campaign_name,pbx_disposition_id,
-        return_description,quantity,synced_at
+        server_ip,server_name,client_name,product_code,
+        reference_date,reference_hour,campaign_id,campaign_name,
+        pbx_disposition_id,return_description,quantity,synced_at
       )
-      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+      VALUES(
+        %s,%s,%s,%s,
+        %s,%s,%s,%s,
+        %s,%s,%s,NOW()
+      )
     """
 
     with pg.transaction():
@@ -288,17 +524,35 @@ def replace_today(pg, source_date, tabulation_rows, pbx_rows):
             for batch in chunks(pbx_rows, batch_size):
                 cur.executemany(insert_pbx, batch)
 
-    return deleted_tabulation, deleted_pbx, len(tabulation_rows), len(pbx_rows)
+    return (
+        deleted_tabulation,
+        deleted_pbx,
+        len(tabulation_rows),
+        len(pbx_rows),
+    )
+
 
 def main() -> int:
     started = time.monotonic()
     run_id = uuid.uuid4()
-    sql_conn = None
+    source_date = sao_paulo_today()
     pg_conn = None
-    source_date = None
+    server_results: list[dict[str, Any]] = []
 
     try:
         log.info("OSP Monitor Engine iniciado. RunId=%s", run_id)
+
+        config_errors = validate_server_config()
+        if config_errors:
+            raise RuntimeError(
+                "Configuracao de servidores invalida:\n- "
+                + "\n- ".join(config_errors)
+            )
+
+        hosts = unique_enabled_hosts()
+
+        if not hosts:
+            raise RuntimeError("Nenhum servidor habilitado em servers.py.")
 
         tabulation_table = safe_source_table(
             os.getenv(
@@ -315,26 +569,44 @@ def main() -> int:
             "PBX_SOURCE_TABLE",
         )
 
-        sql_conn = connect_sqlserver()
-        source_date = sql_today(sql_conn)
-
         pg_conn = connect_neon()
-        create_run(pg_conn, run_id, source_date)
+        create_run(pg_conn, run_id, source_date, hosts)
 
-        tabulation_rows = fetch_rows(
-            sql_conn,
-            TABULATION_SELECT.format(table=tabulation_table),
-        )
-        pbx_rows = fetch_rows(
-            sql_conn,
-            PBX_SELECT.format(table=pbx_table),
+        tabulation_rows, pbx_rows, server_results = extract_all_servers(
+            source_date,
+            tabulation_table,
+            pbx_table,
+            hosts,
         )
 
-        update_source_counts(pg_conn, run_id, len(tabulation_rows), len(pbx_rows))
-        validate_sources(source_date, tabulation_rows, pbx_rows)
+        if not tabulation_rows and not env_bool("ALLOW_EMPTY_SOURCE", False):
+            raise RuntimeError(
+                "Consolidado de Tabulacao ficou vazio. Neon preservado."
+            )
 
-        deleted_tabulation, deleted_pbx, inserted_tabulation, inserted_pbx = replace_today(
-            pg_conn, source_date, tabulation_rows, pbx_rows
+        if not pbx_rows and not env_bool("ALLOW_EMPTY_SOURCE", False):
+            raise RuntimeError(
+                "Consolidado de Retorno PBX ficou vazio. Neon preservado."
+            )
+
+        update_source_counts(
+            pg_conn,
+            run_id,
+            len(tabulation_rows),
+            len(pbx_rows),
+            server_results,
+        )
+
+        (
+            deleted_tabulation,
+            deleted_pbx,
+            inserted_tabulation,
+            inserted_pbx,
+        ) = replace_today(
+            pg_conn,
+            source_date,
+            tabulation_rows,
+            pbx_rows,
         )
 
         finish_run(
@@ -352,13 +624,16 @@ def main() -> int:
             "status": "SUCCESS",
             "run_id": str(run_id),
             "source_date": source_date,
+            "servers": len(hosts),
             "tabulation_rows": inserted_tabulation,
             "pbx_rows": inserted_pbx,
             "duration_ms": int((time.monotonic() - started) * 1000),
         })
 
         log.info(
-            "Carga concluida. DELETE/INSERT Tabulacao=%s/%s | PBX=%s/%s",
+            "Carga multi-servidor concluida. Servidores=%s | "
+            "DELETE/INSERT Tabulacao=%s/%s | PBX=%s/%s",
+            len(hosts),
             deleted_tabulation,
             inserted_tabulation,
             deleted_pbx,
@@ -370,8 +645,16 @@ def main() -> int:
         message = str(exc)
         log.exception("Falha no OSP Monitor Engine: %s", message)
 
-        if pg_conn is not None and source_date is not None:
+        if pg_conn is not None:
             try:
+                if server_results:
+                    update_source_counts(
+                        pg_conn,
+                        run_id,
+                        0,
+                        0,
+                        server_results,
+                    )
                 finish_run(
                     pg_conn,
                     run_id,
@@ -392,16 +675,12 @@ def main() -> int:
         return 1
 
     finally:
-        if sql_conn is not None:
-            try:
-                sql_conn.close()
-            except Exception:
-                pass
         if pg_conn is not None:
             try:
                 pg_conn.close()
             except Exception:
                 pass
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
