@@ -463,14 +463,14 @@ export default async function AlertCenterPage({
   const requestedCampaign = typeof sp.campaign === "string" ? sp.campaign : "";
   const requestedProductivity = typeof sp.productivity === "string" ? sp.productivity.toUpperCase() : "ALL";
 
-  const latestDateResult = await query<{reference_date:string|null}>(\`
+  const latestDateResult = await query<{reference_date:string|null}>(`
     SELECT MAX(reference_date)::text AS reference_date
     FROM osp_monitor_tabulation
     WHERE client_name='FastFlow' AND product_code='ADA'
-  \`);
+  `);
 
   const selectedDate = requestedDate || latestDateResult.rows[0]?.reference_date || "";
-  const selectedCampaign = /^\\d+$/.test(requestedCampaign) ? Number(requestedCampaign) : null;
+  const selectedCampaign = /^\d+$/.test(requestedCampaign) ? Number(requestedCampaign) : null;
   const selectedProductivity = ["PRODUTIVO","IMPRODUTIVO"].includes(requestedProductivity)
     ? requestedProductivity
     : "ALL";
@@ -483,13 +483,13 @@ export default async function AlertCenterPage({
     </section>;
   }
 
-  const campaigns = await query<CampaignRow>(\`
+  const campaigns = await query<CampaignRow>(`
     SELECT campaign_id,MAX(campaign_name) campaign_name,SUM(quantity)::text volume
     FROM osp_monitor_tabulation
     WHERE reference_date=$1::date AND client_name='FastFlow' AND product_code='ADA'
     GROUP BY campaign_id
     ORDER BY campaign_id
-  \`,[selectedDate]);
+  `,[selectedDate]);
 
   const attemptParams: unknown[] = [selectedDate];
   const attemptWhere = [
@@ -531,24 +531,24 @@ export default async function AlertCenterPage({
   }
   const pbxFilter = pbxWhere.join(" AND ");
 
-  const etlPromise = query<EtlRow>(\`
+  const etlPromise = query<EtlRow>(`
     SELECT status,started_at::text,finished_at::text,duration_ms,
            inserted_tabulation::text,inserted_pbx_return::text,error_message
     FROM osp_monitor_etl_control
     WHERE source_date=$1::date
     ORDER BY started_at DESC
     LIMIT 1
-  \`,[selectedDate]);
+  `,[selectedDate]);
 
-  const productivityPromise = query<ProductivityRow>(\`
+  const productivityPromise = query<ProductivityRow>(`
     SELECT COALESCE(productivity_class,'SEM_CLASSIFICACAO') productivity_class,
            SUM(quantity)::text volume
     FROM osp_monitor_tabulation
-    WHERE \${attemptBaseFilter}
+    WHERE ${attemptBaseFilter}
     GROUP BY productivity_class
-  \`,attemptBaseParams);
+  `,attemptBaseParams);
 
-  const commonCss = <style>{\`
+  const commonCss = <style>{`
     .ac-hero{position:relative;overflow:hidden;padding:24px;margin-bottom:14px;background:linear-gradient(120deg,#000049 0%,#081b55 58%,#14366f 100%);color:#fff;border:0}
     .ac-hero:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:34px 34px;mask-image:linear-gradient(90deg,#000,transparent 86%)}
     .ac-hero:after{content:"";position:absolute;width:310px;height:310px;border-radius:50%;border:1px solid rgba(251,92,40,.34);right:-120px;top:-165px;box-shadow:0 0 90px rgba(251,92,40,.16),inset 0 0 60px rgba(52,95,153,.14)}
@@ -680,7 +680,7 @@ export default async function AlertCenterPage({
     @media(max-width:1250px){.ac-kpis{grid-template-columns:repeat(3,1fr)}.ac-grid-2,.ac-etl{grid-template-columns:1fr}.ac-pair-grid{grid-template-columns:repeat(2,1fr)}}
     @media(max-width:800px){.ac-hero-inner{align-items:flex-start;flex-direction:column}.ac-hero-meta{justify-content:flex-start}.ac-filter{grid-template-columns:1fr}.ac-kpis{grid-template-columns:repeat(2,1fr)}.ac-productivity-grid{grid-template-columns:1fr}.ac-pair-grid{grid-template-columns:1fr}}
     @media(max-width:520px){.ac-kpis{grid-template-columns:1fr}}
-  \`}</style>;
+  `}</style>;
 
   const etlResult = await etlPromise;
   const productivityResult = await productivityPromise;
@@ -744,63 +744,63 @@ export default async function AlertCenterPage({
       tabHourResult,
       heatResult,
     ] = await Promise.all([
-      query<SummaryRow>(\`
+      query<SummaryRow>(`
         SELECT COUNT(*)::text rows_count,
                COALESCE(SUM(quantity),0)::text volume,
                COALESCE(SUM(seconds),0)::text seconds,
                COUNT(DISTINCT campaign_id)::text campaigns,
                MAX(synced_at)::text last_sync
         FROM osp_monitor_tabulation
-        WHERE \${attemptFilter}
-      \`,attemptParams),
+        WHERE ${attemptFilter}
+      `,attemptParams),
 
-      query<DurationRow>(\`
+      query<DurationRow>(`
         SELECT seconds_bucket bucket,
                SUM(quantity)::text volume,
                SUM(seconds)::text seconds,
                ROUND(SUM(seconds)::numeric/NULLIF(SUM(quantity),0),2)::text tma
         FROM osp_monitor_tabulation
-        WHERE \${attemptFilter}
+        WHERE ${attemptFilter}
         GROUP BY seconds_bucket
         ORDER BY seconds_bucket
-      \`,attemptParams),
+      `,attemptParams),
 
-      query<RankingRow>(\`
+      query<RankingRow>(`
         SELECT tabulation label,
                SUM(quantity)::text volume,
                SUM(seconds)::text seconds,
                ROUND(SUM(seconds)::numeric/NULLIF(SUM(quantity),0),2)::text tma
         FROM osp_monitor_tabulation
-        WHERE \${attemptFilter}
+        WHERE ${attemptFilter}
         GROUP BY tabulation
         ORDER BY SUM(quantity) DESC
         LIMIT 15
-      \`,attemptParams),
+      `,attemptParams),
 
-      query<HourRow>(\`
+      query<HourRow>(`
         SELECT reference_hour::int hour,
                SUM(quantity)::text volume,
                SUM(seconds)::text seconds,
                ROUND(SUM(seconds)::numeric/NULLIF(SUM(quantity),0),2)::text tma
         FROM osp_monitor_tabulation
-        WHERE \${attemptFilter}
+        WHERE ${attemptFilter}
         GROUP BY reference_hour
         ORDER BY reference_hour
-      \`,attemptParams),
+      `,attemptParams),
 
-      query<MatrixRow>(\`
+      query<MatrixRow>(`
         SELECT seconds_bucket category,reference_hour::int hour,SUM(quantity)::text volume,SUM(seconds)::text seconds
         FROM osp_monitor_tabulation
-        WHERE \${attemptFilter}
+        WHERE ${attemptFilter}
         GROUP BY seconds_bucket,reference_hour
         ORDER BY seconds_bucket,reference_hour
-      \`,attemptParams),
+      `,attemptParams),
 
-      query<MatrixRow>(\`
+      query<MatrixRow>(`
         WITH top_tabs AS (
           SELECT tabulation
           FROM osp_monitor_tabulation
-          WHERE \${attemptFilter}
+          WHERE ${attemptFilter}
           GROUP BY tabulation
           ORDER BY SUM(quantity) DESC
           LIMIT 12
@@ -808,16 +808,16 @@ export default async function AlertCenterPage({
         SELECT t.tabulation category,t.reference_hour::int hour,SUM(t.quantity)::text volume,SUM(t.seconds)::text seconds
         FROM osp_monitor_tabulation t
         JOIN top_tabs x ON x.tabulation=t.tabulation
-        WHERE \${attemptFilter.replaceAll("reference_date","t.reference_date").replaceAll("client_name","t.client_name").replaceAll("product_code","t.product_code").replaceAll("campaign_id","t.campaign_id").replaceAll("productivity_class","t.productivity_class")}
+        WHERE ${attemptFilter.replaceAll("reference_date","t.reference_date").replaceAll("client_name","t.client_name").replaceAll("product_code","t.product_code").replaceAll("campaign_id","t.campaign_id").replaceAll("productivity_class","t.productivity_class")}
         GROUP BY t.tabulation,t.reference_hour
         ORDER BY SUM(t.quantity) DESC,t.reference_hour
-      \`,attemptParams),
+      `,attemptParams),
 
-      query<HeatRow>(\`
+      query<HeatRow>(`
         WITH top_tabs AS (
           SELECT tabulation
           FROM osp_monitor_tabulation
-          WHERE \${attemptFilter}
+          WHERE ${attemptFilter}
           GROUP BY tabulation
           ORDER BY SUM(quantity) DESC
           LIMIT 12
@@ -826,10 +826,10 @@ export default async function AlertCenterPage({
                SUM(t.quantity)::text volume,SUM(t.seconds)::text seconds
         FROM osp_monitor_tabulation t
         JOIN top_tabs x ON x.tabulation=t.tabulation
-        WHERE \${attemptFilter.replaceAll("reference_date","t.reference_date").replaceAll("client_name","t.client_name").replaceAll("product_code","t.product_code").replaceAll("campaign_id","t.campaign_id").replaceAll("productivity_class","t.productivity_class")}
+        WHERE ${attemptFilter.replaceAll("reference_date","t.reference_date").replaceAll("client_name","t.client_name").replaceAll("product_code","t.product_code").replaceAll("campaign_id","t.campaign_id").replaceAll("productivity_class","t.productivity_class")}
         GROUP BY t.tabulation,t.seconds_bucket
         ORDER BY SUM(t.quantity) DESC,t.seconds_bucket
-      \`,attemptParams),
+      `,attemptParams),
     ]);
 
     const summary=summaryResult.rows[0];
@@ -932,46 +932,46 @@ export default async function AlertCenterPage({
     signalingHourResult,
     pairResult,
   ] = await Promise.all([
-    query<PbxSummaryRow>(\`
+    query<PbxSummaryRow>(`
       SELECT COALESCE(SUM(quantity),0)::text volume,
              COUNT(DISTINCT return_description)::text returns_count,
              COUNT(DISTINCT signaling_extra_info)::text signaling_count,
              MAX(synced_at)::text last_sync
       FROM osp_monitor_pbx_return
-      WHERE \${pbxFilter}
-    \`,pbxParams),
+      WHERE ${pbxFilter}
+    `,pbxParams),
 
-    query<RankingRow>(\`
+    query<RankingRow>(`
       SELECT return_description label,SUM(quantity)::text volume
       FROM osp_monitor_pbx_return
-      WHERE \${pbxFilter}
+      WHERE ${pbxFilter}
       GROUP BY return_description
       ORDER BY SUM(quantity) DESC
       LIMIT 15
-    \`,pbxParams),
+    `,pbxParams),
 
-    query<RankingRow>(\`
+    query<RankingRow>(`
       SELECT COALESCE(NULLIF(signaling_extra_info,''),'0') label,SUM(quantity)::text volume
       FROM osp_monitor_pbx_return
-      WHERE \${pbxFilter}
+      WHERE ${pbxFilter}
       GROUP BY COALESCE(NULLIF(signaling_extra_info,''),'0')
       ORDER BY SUM(quantity) DESC
       LIMIT 15
-    \`,pbxParams),
+    `,pbxParams),
 
-    query<HourRow>(\`
+    query<HourRow>(`
       SELECT reference_hour::int hour,SUM(quantity)::text volume,'0'::text seconds,'0'::text tma
       FROM osp_monitor_pbx_return
-      WHERE \${pbxFilter}
+      WHERE ${pbxFilter}
       GROUP BY reference_hour
       ORDER BY reference_hour
-    \`,pbxParams),
+    `,pbxParams),
 
-    query<MatrixRow>(\`
+    query<MatrixRow>(`
       WITH top_returns AS (
         SELECT return_description
         FROM osp_monitor_pbx_return
-        WHERE \${pbxFilter}
+        WHERE ${pbxFilter}
         GROUP BY return_description
         ORDER BY SUM(quantity) DESC
         LIMIT 12
@@ -979,16 +979,16 @@ export default async function AlertCenterPage({
       SELECT p.return_description category,p.reference_hour::int hour,SUM(p.quantity)::text volume
       FROM osp_monitor_pbx_return p
       JOIN top_returns x ON x.return_description=p.return_description
-      WHERE \${pbxFilter.replaceAll("reference_date","p.reference_date").replaceAll("client_name","p.client_name").replaceAll("product_code","p.product_code").replaceAll("campaign_id","p.campaign_id")}
+      WHERE ${pbxFilter.replaceAll("reference_date","p.reference_date").replaceAll("client_name","p.client_name").replaceAll("product_code","p.product_code").replaceAll("campaign_id","p.campaign_id")}
       GROUP BY p.return_description,p.reference_hour
       ORDER BY SUM(p.quantity) DESC,p.reference_hour
-    \`,pbxParams),
+    `,pbxParams),
 
-    query<MatrixRow>(\`
+    query<MatrixRow>(`
       WITH top_signals AS (
         SELECT COALESCE(NULLIF(signaling_extra_info,''),'0') signaling
         FROM osp_monitor_pbx_return
-        WHERE \${pbxFilter}
+        WHERE ${pbxFilter}
         GROUP BY COALESCE(NULLIF(signaling_extra_info,''),'0')
         ORDER BY SUM(quantity) DESC
         LIMIT 12
@@ -996,19 +996,19 @@ export default async function AlertCenterPage({
       SELECT COALESCE(NULLIF(p.signaling_extra_info,''),'0') category,p.reference_hour::int hour,SUM(p.quantity)::text volume
       FROM osp_monitor_pbx_return p
       JOIN top_signals x ON x.signaling=COALESCE(NULLIF(p.signaling_extra_info,''),'0')
-      WHERE \${pbxFilter.replaceAll("reference_date","p.reference_date").replaceAll("client_name","p.client_name").replaceAll("product_code","p.product_code").replaceAll("campaign_id","p.campaign_id")}
+      WHERE ${pbxFilter.replaceAll("reference_date","p.reference_date").replaceAll("client_name","p.client_name").replaceAll("product_code","p.product_code").replaceAll("campaign_id","p.campaign_id")}
       GROUP BY COALESCE(NULLIF(p.signaling_extra_info,''),'0'),p.reference_hour
       ORDER BY SUM(p.quantity) DESC,p.reference_hour
-    \`,pbxParams),
+    `,pbxParams),
 
-    query<PbxPairRow>(\`
+    query<PbxPairRow>(`
       SELECT return_description,COALESCE(NULLIF(signaling_extra_info,''),'0') signaling_extra_info,SUM(quantity)::text volume
       FROM osp_monitor_pbx_return
-      WHERE \${pbxFilter}
+      WHERE ${pbxFilter}
       GROUP BY return_description,COALESCE(NULLIF(signaling_extra_info,''),'0')
       ORDER BY SUM(quantity) DESC
       LIMIT 30
-    \`,pbxParams),
+    `,pbxParams),
   ]);
 
   const pbxSummary=pbxSummaryResult.rows[0];
