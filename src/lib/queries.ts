@@ -75,6 +75,44 @@ export async function getDashboardSummary() {
   };
 }
 
+
+
+export async function getIncidentIntelligence(days = 30) {
+  const safeDays = Math.min(Math.max(Math.trunc(days), 7), 90);
+  return (await query<{
+    day:string;
+    area_code:string;
+    area_name:string;
+    problem_type_code:string;
+    problem_type_label:string;
+    total:number;
+  }>(`
+    SELECT
+      (i.created_at AT TIME ZONE 'America/Sao_Paulo')::date::text AS day,
+      COALESCE(i.area_code,'NAO_CLASSIFICADA') AS area_code,
+      COALESCE(a.name,'Não classificada') AS area_name,
+      COALESCE(i.problem_type_code,'NAO_CLASSIFICADO') AS problem_type_code,
+      COALESCE(pt.label,'Não classificado') AS problem_type_label,
+      COUNT(*)::int AS total
+    FROM incidents i
+    LEFT JOIN areas a ON a.code=i.area_code
+    LEFT JOIN incident_problem_types pt ON pt.code=i.problem_type_code
+    WHERE i.created_at >= (
+      (
+        date_trunc('day',CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')
+        - (($1::int - 1) * INTERVAL '1 day')
+      ) AT TIME ZONE 'America/Sao_Paulo'
+    )
+    GROUP BY
+      (i.created_at AT TIME ZONE 'America/Sao_Paulo')::date,
+      COALESCE(i.area_code,'NAO_CLASSIFICADA'),
+      COALESCE(a.name,'Não classificada'),
+      COALESCE(i.problem_type_code,'NAO_CLASSIFICADO'),
+      COALESCE(pt.label,'Não classificado')
+    ORDER BY day,area_code,problem_type_label
+  `,[safeDays])).rows;
+}
+
 export async function getClients() {
   return (await query<{ id: string; name: string; display_name: string; active: boolean; products: string | null }>(`
     SELECT
@@ -249,7 +287,7 @@ export async function getIncidents(filters: { q?: string; status?: string; clien
     LEFT JOIN incident_products ip ON ip.incident_id=i.id
     LEFT JOIN products p ON p.id=ip.product_id
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-    GROUP BY i.id, c.display_name, s.label, u.name, a.name,pt.label,pt.label
+    GROUP BY i.id, c.display_name, s.label, u.name, a.name,pt.label
     ORDER BY i.created_at DESC
     ${limitClause}
   `, params)).rows;
@@ -277,7 +315,7 @@ export async function getIncident(id: string) {
     LEFT JOIN incident_products ip ON ip.incident_id=i.id
     LEFT JOIN products p ON p.id=ip.product_id
     WHERE i.id=$1
-    GROUP BY i.id, c.display_name, s.label, u.name, a.name
+    GROUP BY i.id, c.display_name, s.label, u.name, a.name,pt.label
   `, [id])).rows[0];
   if (!incident) return null;
 
