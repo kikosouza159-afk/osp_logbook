@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Eye,
@@ -22,6 +23,7 @@ export function LoginForm({ hasError }: { hasError: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [mounted, setMounted] = useState(false);
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [transitionVisible, setTransitionVisible] = useState(false);
@@ -29,6 +31,10 @@ export function LoginForm({ hasError }: { hasError: boolean }) {
   const [error, setError] = useState(
     hasError ? "Usuário ou senha inválidos. Verifique os dados e tente novamente." : ""
   );
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const finishTransition = () => {
     if (fallbackTimerRef.current) {
@@ -183,31 +189,34 @@ export function LoginForm({ hasError }: { hasError: boolean }) {
         </button>
       </form>
 
-      {transitionVisible && (
-        <div className="login-transition-overlay" aria-live="polite">
-          <video
-            ref={videoRef}
-            className="login-transition-video"
-            src="/login/osp-login-transition.mp4"
-            preload="auto"
-            playsInline
-            onEnded={finishTransition}
-            onError={finishTransition}
-          />
-          <div className="login-transition-shade" aria-hidden="true" />
-          <div className="login-transition-status">
-            <img
-              src="https://www.olos.com.br/wp-content/uploads/2022/12/logo-olos-laranja.png"
-              alt="OLOS"
-            />
-            <div>
-              <strong>Preparando o OSP</strong>
-              <span>Carregando seu centro de controle...</span>
-            </div>
-            <LoaderCircle className="login-transition-spinner" size={22} />
-          </div>
-        </div>
-      )}
+      {mounted && transitionVisible
+        ? createPortal(
+            <div className="login-transition-overlay" aria-live="polite">
+              <video
+                ref={videoRef}
+                className="login-transition-video"
+                src="/login/osp-login-transition.mp4"
+                preload="auto"
+                playsInline
+                onEnded={finishTransition}
+                onError={finishTransition}
+              />
+              <div className="login-transition-shade" aria-hidden="true" />
+              <div className="login-transition-status">
+                <img
+                  src="https://www.olos.com.br/wp-content/uploads/2022/12/logo-olos-laranja.png"
+                  alt="OLOS"
+                />
+                <div>
+                  <strong>Preparando o OSP</strong>
+                  <span>Carregando seu centro de controle...</span>
+                </div>
+                <LoaderCircle className="login-transition-spinner" size={22} />
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </>
   );
 }
