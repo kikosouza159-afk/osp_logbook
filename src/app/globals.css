@@ -6613,3 +6613,143 @@ html[data-theme="dark"] .incident-intel-tooltip-list span {
     animation:none !important;
   }
 }
+
+
+/* ============================================================
+   LOGIN TRANSITION VIDEO · OSP
+   ============================================================ */
+.login-transition-overlay {
+  position:fixed;
+  inset:0;
+  z-index:999999;
+  overflow:hidden;
+  background:#020817;
+  animation:loginTransitionIn .28s ease both;
+}
+
+.login-transition-video {
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  object-position:center;
+  background:#020817;
+}
+
+.login-transition-shade {
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:
+    linear-gradient(180deg,rgba(0,0,20,.05) 0%,rgba(0,0,24,.02) 58%,rgba(0,0,24,.46) 100%),
+    radial-gradient(circle at 50% 48%,transparent 46%,rgba(0,0,30,.18) 100%);
+}
+
+.login-transition-status {
+  position:absolute;
+  left:50%;
+  bottom:clamp(24px,4vw,52px);
+  transform:translateX(-50%);
+  width:min(470px,calc(100% - 32px));
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;
+  gap:14px;
+  padding:12px 16px;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:16px;
+  color:#fff;
+  background:rgba(0,0,48,.58);
+  box-shadow:0 18px 46px rgba(0,0,25,.32);
+  backdrop-filter:blur(16px) saturate(1.12);
+  -webkit-backdrop-filter:blur(16px) saturate(1.12);
+  animation:loginTransitionStatusIn .45s .15s ease both;
+}
+
+.login-transition-status img {
+  width:74px;
+  height:auto;
+  object-fit:contain;
+}
+
+.login-transition-status > div {
+  min-width:0;
+}
+
+.login-transition-status strong {
+  display:block;
+  color:#fff;
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.01em;
+}
+
+.login-transition-status span {
+  display:block;
+  margin-top:3px;
+  color:#C8D5ED;
+  font-size:9px;
+  line-height:1.4;
+}
+
+.login-transition-spinner,
+.login-submit-spinner {
+  animation:loginTransitionSpin .9s linear infinite;
+}
+
+.login-transition-spinner {
+  color:#FB5C28;
+  filter:drop-shadow(0 0 8px rgba(251,92,40,.38));
+}
+
+.login-submit:disabled,
+.login-card-christmas .input:disabled,
+.login-card-christmas .password-toggle:disabled {
+  cursor:wait;
+}
+
+.login-submit:disabled {
+  opacity:.88;
+}
+
+@keyframes loginTransitionIn {
+  from{opacity:0}
+  to{opacity:1}
+}
+
+@keyframes loginTransitionStatusIn {
+  from{opacity:0;transform:translate(-50%,12px)}
+  to{opacity:1;transform:translate(-50%,0)}
+}
+
+@keyframes loginTransitionSpin {
+  to{transform:rotate(360deg)}
+}
+
+@media (max-width:700px) {
+  .login-transition-status {
+    grid-template-columns:auto minmax(0,1fr) auto;
+    gap:10px;
+    padding:10px 12px;
+    bottom:18px;
+  }
+  .login-transition-status img {
+    width:58px;
+  }
+  .login-transition-status strong {
+    font-size:10px;
+  }
+  .login-transition-status span {
+    font-size:8px;
+  }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .login-transition-overlay,
+  .login-transition-status,
+  .login-transition-spinner,
+  .login-submit-spinner {
+    animation:none !important;
+  }
+}
