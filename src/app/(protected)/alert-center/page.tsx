@@ -138,6 +138,20 @@ function dateTime(value: string | null) {
   }).format(new Date(value));
 }
 
+function dateTimeFull(value: string | null) {
+  if (!value) return "Sem sincronização";
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
+}
+
 function cleanBucket(value: string) {
   return value.replace(/^[a-z]\.\s*/i, "");
 }
@@ -693,6 +707,37 @@ export default async function AlertCenterPage({
     GROUP BY productivity_class
   `,attemptBaseParams);
 
+  const syncParams: unknown[] = [selectedDate];
+  const syncWhere = [
+    "reference_date=$1::date",
+    "product_code='ADA'",
+  ];
+  if (selectedClient !== "ALL") {
+    syncParams.push(selectedClient);
+    syncWhere.push("client_name=$"+syncParams.length);
+  }
+  if (effectiveCampaign !== null) {
+    syncParams.push(effectiveCampaign);
+    syncWhere.push("campaign_id=$"+syncParams.length);
+  }
+  const syncFilter = syncWhere.join(" AND ");
+
+  const syncResult = await query<{last_sync:string|null}>(`
+    SELECT MAX(last_sync)::text AS last_sync
+    FROM (
+      SELECT MAX(synced_at) AS last_sync
+      FROM osp_monitor_tabulation
+      WHERE ${syncFilter}
+
+      UNION ALL
+
+      SELECT MAX(synced_at) AS last_sync
+      FROM osp_monitor_pbx_return
+      WHERE ${syncFilter}
+    ) s
+  `,syncParams);
+  const latestSync = syncResult.rows[0]?.last_sync || null;
+
   const commonCss = <style>{`
     .ac-hero{position:relative;overflow:hidden;padding:24px;margin-bottom:14px;background:linear-gradient(120deg,#000049 0%,#081b55 58%,#14366f 100%);color:#fff;border:0}
     .ac-hero:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:34px 34px;mask-image:linear-gradient(90deg,#000,transparent 86%)}
@@ -884,6 +929,7 @@ export default async function AlertCenterPage({
         <div className="ac-hero-meta">
           <span className="ac-pill"><span className="ac-live"/> {selectedClient === "ALL" ? "Todos os clientes" : selectedClient} · ADA</span>
           <span className="ac-pill"><Server size={12}/> 10.195.124.1 · PS02</span>
+          <span className="ac-pill"><RefreshCw size={12}/> Atualizado {dateTimeFull(latestSync)}</span>
           <span className="ac-pill"><ShieldCheck size={12}/> Engine v12</span>
         </div>
       </div>
