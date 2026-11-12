@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ClipboardCheck, BookOpenCheck, Siren, MessageSquareText, Building2,
-  Users, History, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Sparkles, ShieldCheck, RadioTower
+  Users, History, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Sparkles, ShieldCheck, RadioTower, Presentation
 } from "lucide-react";
 import { logoutAction } from "@/app/actions";
 import type { SessionUser } from "@/lib/auth";
@@ -25,6 +25,7 @@ const groups = [
     items:[
       ["/clients", "Clientes", Building2],
       ["/analysts", "Analistas", Users],
+      ["/apresentacao", "Apresentação", Presentation],
     ],
   },
   {
