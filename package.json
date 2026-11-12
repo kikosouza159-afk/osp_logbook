@@ -30,7 +30,9 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "typescript": "^5.9.3",
-    "mssql": "^11.0.1"
+    "mssql": "^11.0.1",
+    "jszip": "^3.10.1",
+    "read-excel-file": "^5.8.6"
   },
   "devDependencies": {
     "eslint": "^9.39.0",
