@@ -76,6 +76,17 @@ function card(model:Model,id:string):[string,string] {
  };
  return [cardNames[id]||"Indicador",dictionary[id]||"–"];
 }
+function wrapSvg(value:string,max=52,maxLines=5) {
+ const lines:string[]=[];let line="";
+ for(const word of String(value||"").replace(/\r/g,"").split(/\s+/)){
+   if(!word)continue;
+   if((line+" "+word).trim().length>max){if(line)lines.push(line);line=word.slice(0,max);}
+   else line=(line+" "+word).trim();
+ }
+ if(line)lines.push(line);
+ if(lines.length>maxLines){const limited=lines.slice(0,maxLines);limited[maxLines-1]=limited[maxLines-1].slice(0,max-1)+"…";return limited;}
+ return lines;
+}
 function SlideShell({heading,subtitle,children}:{heading:string;subtitle:string;children:React.ReactNode}) {
  return <><defs><linearGradient id="n" x1="0" y1="0" x2="1" y2="0"><stop stopColor={NAVY}/><stop offset="1" stopColor="#183D83"/></linearGradient><linearGradient id="o" x1="0" x2="1"><stop stopColor="#FC6E33"/><stop offset="1" stopColor={ORANGE}/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="5" stdDeviation="7" floodColor="#15245E" floodOpacity=".13"/></filter></defs>
  <rect width="1600" height="900" fill="#F5F7FB"/><g fill="none" stroke="#DCE2EC" opacity=".45" strokeWidth="2"><ellipse cx="175" cy="200" rx="185" ry="78" transform="rotate(-47 175 200)"/><ellipse cx="420" cy="320" rx="180" ry="78" transform="rotate(-47 420 320)"/><ellipse cx="240" cy="690" rx="200" ry="84" transform="rotate(-47 240 690)"/></g>
@@ -110,7 +121,7 @@ function FunnelSlide({model}:{model:Model}) {
  <rect x="745" y="663" width="385" height="187" rx="16" fill="#FFF" filter="url(#shadow)"/><text x="765" y="703" fontSize="25" fontWeight="800" fill={NAVY}>Observações</text>
  {String(model.funnel.executive.observacoes||"").split("\n").slice(0,4).map((line,i)=><text key={i} x="765" y={740+i*26} fontSize="17" fill="#545E73">{line.slice(0,41)}</text>)}
  <rect x="1144" y="663" width="395" height="187" rx="16" fill="#EEF3FF" filter="url(#shadow)"/><text x="1166" y="703" fontSize="25" fontWeight="800" fill={NAVY}>Síntese Executiva</text>
- <foreignObject x="1166" y="719" width="353" height="110"><div xmlns="http://www.w3.org/1999/xhtml" style={{font:"18px Arial",color:NAVY,lineHeight:"1.25",overflow:"hidden",height:"105px",overflowWrap:"anywhere"}}>{model.funnel.executive.sintese_executiva}</div></foreignObject>
+ {wrapSvg(model.funnel.executive.sintese_executiva,44,5).map((line,i)=><text key={i} x="1166" y={745+i*21} fontSize="17" fill={NAVY}>{line}</text>)}
  </SlideShell>;
 }
 function FinanceSlide({model}:{model:Model}) {
@@ -141,7 +152,7 @@ function FinanceSlide({model}:{model:Model}) {
  })}
  <rect x="69" y="751" width="460" height="113" rx="16" fill="#FFF" filter="url(#shadow)"/><text x="90" y="785" fontSize="22" fill={NAVY} fontWeight="700">Premissas</text><text x="90" y="813" fontSize="17" fill={NAVY}>Custo HC: {model.financial.custo_hc}</text><text x="90" y="838" fontSize="17" fill={NAVY}>Infra / ADM / PA: {model.financial.custo_infra}</text>
  <rect x="545" y="751" width="993" height="113" rx="16" fill="#EDF4FF" filter="url(#shadow)"/><text x="568" y="785" fontSize="22" fill={NAVY} fontWeight="800">Insight Executivo</text>
- <foreignObject x="568" y="795" width="945" height="65"><div xmlns="http://www.w3.org/1999/xhtml" style={{font:"17px Arial",color:NAVY,lineHeight:"1.2",overflow:"hidden",height:"65px"}}>{model.financial.executive.insight}</div></foreignObject>
+ {wrapSvg(model.financial.executive.insight,105,3).map((line,i)=><text key={i} x="568" y={816+i*20} fontSize="16" fill={NAVY}>{line}</text>)}
  </SlideShell>;
 }
 function TextField({label,value,onChange,multiline=false}:{label:string;value:string;onChange:(v:string)=>void;multiline?:boolean}){
@@ -238,10 +249,10 @@ export function PresentationStudio() {
  <div className="ps-preview-canvas">
  {active==="funil"?<svg ref={funil} viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg"><FunnelSlide model={model}/></svg>:
  active==="financeiro"?<svg ref={financial} viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg"><FinanceSlide model={model}/></svg>:
- <svg ref={analysis} viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg"><SlideShell heading={"ANÁLISE EXECUTIVA | "+model.meta.cliente.toUpperCase()} subtitle="Indicadores e oportunidades"><rect x="70" y="240" width="1460" height="550" rx="25" fill="#FFF" filter="url(#shadow)"/><text x="100" y="293" fontSize="35" fill={NAVY} fontWeight="700">Síntese Executiva</text><foreignObject x="99" y="317" width="1390" height="420"><div xmlns="http://www.w3.org/1999/xhtml" style={{font:"25px Arial",whiteSpace:"pre-wrap",color:NAVY,lineHeight:"1.5",wordBreak:"break-word"}}>{gptText||"A análise aparecerá aqui após a leitura do Excel e a revisão dos resultados."}</div></foreignObject></SlideShell></svg>}
+ <svg ref={analysis} viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg"><SlideShell heading={"ANÁLISE EXECUTIVA | "+model.meta.cliente.toUpperCase()} subtitle="Indicadores e oportunidades"><rect x="70" y="240" width="1460" height="550" rx="25" fill="#FFF" filter="url(#shadow)"/><text x="100" y="293" fontSize="35" fill={NAVY} fontWeight="700">Síntese Executiva</text>{wrapSvg(gptText||"A análise aparecerá aqui após a leitura do Excel e a revisão dos resultados.",100,14).map((line,i)=><text key={i} x="99" y={357+i*28} fontSize="21" fill={NAVY}>{line}</text>)}</SlideShell></svg>}
  </div><p className="ps-preview-footer"><ImageIcon size={16}/> Exportação PNG 2048 × 1152 (16:9). Os indicadores calculados não são editáveis.</p>
  </div>
  </div>
- <div className="ps-hidden-slides" aria-hidden="true">{active!=="funil"&&<svg ref={funil} viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg"><FunnelSlide model={model}/></svg>}{active!=="financeiro"&&<svg ref={financial} viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg"><FinanceSlide model={model}/></svg>}{active!=="analise"&&<svg ref={analysis} viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg"><SlideShell heading={"ANÁLISE EXECUTIVA | "+model.meta.cliente.toUpperCase()} subtitle="Resumo GPT revisado"><rect x="70" y="250" width="1460" height="550" rx="24" fill="#FFF"/><text x="100" y="312" fontSize="30" fill={NAVY}>Síntese Executiva</text><foreignObject x="100" y="335" width="1370" height="400"><div xmlns="http://www.w3.org/1999/xhtml" style={{font:"25px Arial",color:NAVY,whiteSpace:"pre-wrap"}}>{gptText}</div></foreignObject></SlideShell></svg>}</div>
+ <div className="ps-hidden-slides" aria-hidden="true">{active!=="funil"&&<svg ref={funil} viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg"><FunnelSlide model={model}/></svg>}{active!=="financeiro"&&<svg ref={financial} viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg"><FinanceSlide model={model}/></svg>}{active!=="analise"&&<svg ref={analysis} viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg"><SlideShell heading={"ANÁLISE EXECUTIVA | "+model.meta.cliente.toUpperCase()} subtitle="Resumo GPT revisado"><rect x="70" y="250" width="1460" height="550" rx="24" fill="#FFF"/><text x="100" y="312" fontSize="30" fill={NAVY}>Síntese Executiva</text>{wrapSvg(gptText,100,14).map((line,i)=><text key={i} x="100" y={370+i*28} fontSize="21" fill={NAVY}>{line}</text>)}</SlideShell></svg>}</div>
  </div>;
 }
