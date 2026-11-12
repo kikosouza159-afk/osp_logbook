@@ -8,7 +8,7 @@ type Line = { indicador: string; grupo: string; [key: string]: string };
 type Cost = { indicador: string; tipo: string; estimado: string; projetado: string; observacao?: string };
 type Model = {
   meta: { cliente: string; prefixo: string; subtitulo_funil: string; subtitulo_financeiro: string; comparabilidade_confirmada: boolean; layout: string };
-  funnel: { periods: string[]; rows: Line[]; produtividade_modo?: string; executive: { kpi_rows: string[]; destaques: string[]; banner_inicio: string; banner_destaque: string; banner_fim: string; observacoes: string; sintese_executiva: string } };
+  funnel: { periods: string[]; rows: Line[]; produtividade_modo?: string; indicator_modes?: Record<string, "automatico" | "manual">; executive: { kpi_rows: string[]; destaques: string[]; banner_inicio: string; banner_destaque: string; banner_fim: string; observacoes: string; sintese_executiva: string } };
   financial: { rows: Cost[]; auto_total: boolean; cenario_atual: string; cenario_projetado: string; custo_hc: string; custo_infra: string; cards: { top: string[]; bottom: string[] }; executive: { equalizacao: string; regra_logado: string; titulo_resultado: string; sintese_executiva: string; insight: string; receita_adicional: string } };
 };
 const ORANGE = "#FB5C28", NAVY = "#000049", BLUE = "#345F99";
@@ -19,7 +19,7 @@ const cardNames:Record<string,string> = {economia:"Economia custo mês",reducao_
 const cardOptions = ["economia","reducao_percentual","economia_anual","receita_adicional","reducao_pa","reducao_hc","custo_estimado","custo_projetado","pa_estimado","pa_projetado","hc_estimado","hc_projetado"];
 const demo: Model = {
  meta:{cliente:"CLIENTE",prefixo:"POC LOCATOR",subtitulo_funil:"Comparativo de performance média diária",subtitulo_financeiro:"Visão comparativa mensal equalizada",comparabilidade_confirmada:false,layout:"executivo"},
- funnel:{periods:["Setembro","08.10 a 23.10"],produtividade_modo:"automatico",rows:[
+ funnel:{periods:["Setembro","08.10 a 23.10"],produtividade_modo:"automatico",indicator_modes:{},rows:[
  {grupo:"FUNIL",indicador:"Campanha",Setembro:"Ativo","08.10 a 23.10":"Locator"},
  ...[["Mailing","14.340","8.499"],["Discado","40.889","152.482"],["Atendimento","734","4.030"],["Localização","23","293"],["Negócio","6","7"],["Abandonadas","–","–"],["Logados","17","9,0"],["Telecom","R$ 346,54","R$ 1.292,31"],["Telecom por CPC (período)","R$ 15,07","R$ 4,41"]].map(([indicador,one,two])=>({grupo:"FUNIL",indicador,Setembro:one,"08.10 a 23.10":two}))],
  executive:{kpi_rows:KPIS.slice(0,12),destaques:["Mailing por Logado","CPC por Logado","Sucesso / Logado","Telecom por CPC (período)"],banner_inicio:"Comparativo entre cenários",banner_destaque:"Indicadores por logado",banner_fim:"Confirme a comparabilidade para apresentar as variações.",observacoes:"Revise a duração e a origem dos indicadores.",sintese_executiva:"Preencha aqui a Síntese Executiva revisada pelo responsável pela POC."}},
@@ -42,7 +42,14 @@ const money=(n:number)=>"R$ "+br(n,0);
 function raw(model:Model,label:string,period:string):string {
  return String(model.funnel.rows.find(r=>r.indicador===label)?.[period]??"–");
 }
+function indicatorMode(model:Model,label:string): "automatico" | "manual" {
+  const configured = model.funnel.indicator_modes?.[label];
+  if(configured === "manual" || configured === "automatico") return configured;
+  if(model.funnel.produtividade_modo === "manual" && ["CPC por Logado","Sucesso / Logado"].includes(label)) return "manual";
+  return "automatico";
+}
 function kpi(model:Model,label:string,period:string):string {
+ if(AUTO.includes(label) && indicatorMode(model,label) === "manual") return raw(model,label,period);
  const n=(name:string)=>val(raw(model,name,period));
  const ratio=(a:number|null,b:number|null,d=1,isPercent=false)=>a!==null && b!==null && b!==0?br(a/b*(isPercent?100:1),d)+(isPercent?"%":""):"–";
  switch(label){
@@ -51,8 +58,8 @@ function kpi(model:Model,label:string,period:string):string {
  case "% Localização (período)":return ratio(n("Localização"),n("Atendimento"),2,true);
  case "% Conversão (período)":return ratio(n("Negócio"),n("Localização"),2,true);
  case "Mailing por Logado":return ratio(n("Mailing"),n("Logados"));
- case "CPC por Logado":return model.funnel.produtividade_modo==="manual"?raw(model,label,period):ratio(n("Localização"),n("Logados"));
- case "Sucesso / Logado":return model.funnel.produtividade_modo==="manual"?raw(model,label,period):ratio(n("Negócio"),n("Logados"));
+ case "CPC por Logado":return ratio(n("Localização"),n("Logados"));
+ case "Sucesso / Logado":return ratio(n("Negócio"),n("Logados"));
  default:return raw(model,label,period);
  }
 }
@@ -190,9 +197,9 @@ export function PresentationStudio() {
  if(!rows.length){setNotice("Cole as células do Excel usando Ctrl+V.");return;}
  update(p=>{for(const cols of rows){
  const name=cols[0];if(!name||/^(indicador|período|periodo|item)$/i.test(name))continue;
- if(kind==="funil"){if(AUTO.includes(name) && p.funnel.produtividade_modo!=="manual")continue;const periods=p.funnel.periods;let r=p.funnel.rows.find(x=>x.indicador.toLowerCase()===name.toLowerCase());if(!r){r={grupo:"ADICIONAIS",indicador:name};p.funnel.rows.push(r);}periods.forEach((period,i)=>{if(cols[i+1]!==undefined)r![period]=cols[i+1];});}
+ if(kind==="funil"){if(AUTO.includes(name) && indicatorMode(p,name)!=="manual")continue;const periods=p.funnel.periods;let r=p.funnel.rows.find(x=>x.indicador.toLowerCase()===name.toLowerCase());if(!r){r={grupo:"ADICIONAIS",indicador:name};p.funnel.rows.push(r);}periods.forEach((period,i)=>{if(cols[i+1]!==undefined)r![period]=cols[i+1];});}
  else{let r=p.financial.rows.find(x=>x.indicador.toLowerCase()===name.toLowerCase());if(!r){r={indicador:name,tipo:"Moeda",estimado:"",projetado:""};p.financial.rows.push(r);}r.estimado=cols[1]??r.estimado;r.projetado=cols[2]??r.projetado;}
- }});setPaste("");setNotice("Dados do Excel aplicados à tabela.");
+ }});setPaste("");setNotice("Dados do Excel aplicados. Indicadores em modo Automático mantêm seus cálculos; para colar valores próprios, altere-os para Manual.");
  }
  function saveJson(){BlobDownload("poc_locator_71.json",new Blob([JSON.stringify(model,null,2)],{type:"application/json"}));}
  async function importJson(e:ChangeEvent<HTMLInputElement>){const f=e.target.files?.[0];if(!f)return;try{const o=JSON.parse(await f.text());if(!o?.meta||!Array.isArray(o?.funnel?.periods)||!Array.isArray(o?.financial?.rows))throw Error("JSON incompatível");setModel({...structuredClone(demo),...o,meta:{...demo.meta,...o.meta},funnel:{...demo.funnel,...o.funnel,executive:{...demo.funnel.executive,...o.funnel.executive}},financial:{...demo.financial,...o.financial,executive:{...demo.financial.executive,...o.financial.executive}}});setNotice("Projeto importado.");}catch(err){setNotice(String(err));}e.target.value="";}
@@ -207,6 +214,7 @@ export function PresentationStudio() {
  const response=await fetch("/api/presentations/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({goal,headers,rows:xlsxRows.length,aggregates,amostra:xlsxRows.slice(1,6)})});const result=await response.json();if(!response.ok)throw Error(result.error||"Falha de GPT.");setGptText(String(result.analysis||""));setNotice("Análise gerada. Revise o texto antes de exportar.");}
  catch(err){setNotice(String(err));}finally{setGptBusy(false);}}
  const selectKPIs=model.funnel.executive.kpi_rows;
+ const availableKPIs=[...new Set([...KPIS,...model.funnel.rows.map(r=>r.indicador).filter(x=>x!=="Campanha")])];
  return <div className="ps-root">
  <header className="ps-hero"><div><span className="ps-overline">GESTÃO / APRESENTAÇÃO</span><h1><Presentation size={29}/> POC Locator <b>Studio 7.1</b></h1><p>Crie apresentações de performance e simulação financeira diretamente no OSP Logbook.</p></div><div className="ps-actions"><button onClick={saveJson}><Save size={17}/> Salvar JSON</button><button onClick={exportZip} className="ps-primary"><Download size={17}/> Exportar ZIP</button></div></header>
  <div className="ps-status"><Check size={15}/>{notice||"Os dados ficam salvos neste navegador. A edição é isolada das outras telas do Logbook."}</div>
@@ -217,11 +225,22 @@ export function PresentationStudio() {
  {active==="funil"&&<>
  <h2>Funil comparativo</h2><TextField label="Subtítulo" value={model.meta.subtitulo_funil} onChange={v=>update(p=>{p.meta.subtitulo_funil=v;})}/>
  <div className="ps-periods">{model.funnel.periods.map((period,i)=><TextField key={i} label={"Período "+(i+1)} value={period} onChange={v=>{if(!v.trim()||model.funnel.periods.includes(v))return;update(p=>{const previous=p.funnel.periods[i];p.funnel.periods[i]=v;p.funnel.rows.forEach(row=>{row[v]=row[previous]||"";delete row[previous];});});}}/>)}</div>
- <h3>Dados do funil</h3><div className="ps-table-wrap"><table><thead><tr><th>Indicador</th>{model.funnel.periods.map(p=><th key={p}>{p}</th>)}</tr></thead><tbody>{INPUTS.concat(model.funnel.produtividade_modo==="manual"?["CPC por Logado","Sucesso / Logado"]:[]).map(label=><tr key={label}><td>{label}</td>{model.funnel.periods.map(p=><td key={p}><input aria-label={label+" "+p} value={raw(model,label,p)==="–"?"":raw(model,label,p)} onChange={e=>changeVal(label,p,e.target.value)}/></td>)}</tr>)}</tbody></table></div>
- <label className="ps-field"><span>Produtividade</span><select value={model.funnel.produtividade_modo||"automatico"} onChange={e=>update(p=>{p.funnel.produtividade_modo=e.target.value;})}><option value="automatico">Automático</option><option value="manual">Manual</option></select></label>
+ <h3>Preenchimento dos indicadores calculados</h3>
+ <p className="ps-note">Escolha como cada indicador será preenchido. No modo Automático, o painel calcula pela fórmula. No modo Manual, ele libera a linha para digitar ou colar do Excel. Os valores digitados continuam salvos mesmo quando você volta ao Automático.</p>
+ <div className="ps-mode-actions">
+  <button type="button" onClick={()=>update(p=>{p.funnel.indicator_modes=Object.fromEntries(AUTO.map(k=>[k,"automatico"])) as Record<string,"automatico"|"manual">;p.funnel.produtividade_modo="automatico";})}>Todos automáticos</button>
+  <button type="button" onClick={()=>update(p=>{p.funnel.indicator_modes=Object.fromEntries(AUTO.map(k=>[k,"manual"])) as Record<string,"automatico"|"manual">;p.funnel.produtividade_modo="manual";})}>Todos manuais</button>
+ </div>
+ <div className="ps-indicator-modes">{AUTO.map(label=><label className="ps-mode-row" key={label}>
+  <span>{label}<small>Atual: {kpi(model,label,latest)}</small></span>
+  <select aria-label={"Modo "+label} value={indicatorMode(model,label)} onChange={e=>update(p=>{p.funnel.indicator_modes={...p.funnel.indicator_modes,[label]:e.target.value as "automatico"|"manual"};})}>
+   <option value="automatico">Automático</option><option value="manual">Manual</option>
+  </select>
+ </label>)}</div>
+ <h3>Dados do funil</h3><div className="ps-table-wrap"><table><thead><tr><th>Indicador</th>{model.funnel.periods.map(p=><th key={p}>{p}</th>)}</tr></thead><tbody>{INPUTS.concat(AUTO.filter(label=>indicatorMode(model,label)==="manual"),model.funnel.rows.map(r=>r.indicador).filter(label=>!INPUTS.includes(label)&&!AUTO.includes(label))).map(label=><tr key={label}><td>{label}</td>{model.funnel.periods.map(p=><td key={p}><input aria-label={label+" "+p} value={raw(model,label,p)==="–"?"":raw(model,label,p)} onChange={e=>changeVal(label,p,e.target.value)}/></td>)}</tr>)}</tbody></table></div>
  <h3>Colar tabela do Excel</h3><textarea rows={4} value={paste} onChange={e=>setPaste(e.target.value)} placeholder={"Indicador\t"+first+"\t"+latest+"\nMailing\t14340\t8499"}/><button onClick={()=>applyPaste("funil")}><FileSpreadsheet size={16}/> Aplicar dados do Excel</button>
- <h3>Quais KPIs aparecem na tabela esquerda? <span className="ps-count">{selectKPIs.length}/14</span></h3><div className="ps-kpis">{KPIS.map(k=><label key={k}><input type="checkbox" checked={selectKPIs.includes(k)} disabled={!selectKPIs.includes(k)&&selectKPIs.length>=14} onChange={e=>update(p=>{p.funnel.executive.kpi_rows=e.target.checked?[...p.funnel.executive.kpi_rows,k].slice(0,14):p.funnel.executive.kpi_rows.filter(x=>x!==k);})}/>{k}</label>)}</div>
- <h3>Cards de destaque (4 posições)</h3>{model.funnel.executive.destaques.slice(0,4).map((v,i)=><label className="ps-field" key={i}><span>Card {i+1}</span><select value={v} onChange={e=>update(p=>{p.funnel.executive.destaques[i]=e.target.value;})}>{KPIS.map(k=><option key={k}>{k}</option>)}</select></label>)}
+ <h3>Quais KPIs aparecem na tabela esquerda? <span className="ps-count">{selectKPIs.length}/14</span></h3><div className="ps-kpis">{availableKPIs.map(k=><label key={k}><input type="checkbox" checked={selectKPIs.includes(k)} disabled={!selectKPIs.includes(k)&&selectKPIs.length>=14} onChange={e=>update(p=>{p.funnel.executive.kpi_rows=e.target.checked?[...p.funnel.executive.kpi_rows,k].slice(0,14):p.funnel.executive.kpi_rows.filter(x=>x!==k);})}/>{k}</label>)}</div>
+ <h3>Cards de destaque (4 posições)</h3>{model.funnel.executive.destaques.slice(0,4).map((v,i)=><label className="ps-field" key={i}><span>Card {i+1}</span><select value={v} onChange={e=>update(p=>{p.funnel.executive.destaques[i]=e.target.value;})}>{availableKPIs.map(k=><option key={k}>{k}</option>)}</select></label>)}
  <h3>Textos e insights</h3>{(["banner_inicio","banner_destaque","banner_fim","observacoes","sintese_executiva"] as const).map(f=><TextField key={f} label={f.replaceAll("_"," ")} multiline={["observacoes","sintese_executiva"].includes(f)} value={model.funnel.executive[f]} onChange={v=>setEx(f,v)}/>)}
  </>}
  {active==="financeiro"&&<>
