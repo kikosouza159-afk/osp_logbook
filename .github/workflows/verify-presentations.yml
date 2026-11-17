@@ -6,6 +6,7 @@ on:
       - 'src/app/(protected)/apresentacao/**'
       - 'src/app/api/presentations/**'
       - 'src/components/sidebar.tsx'
+      - 'src/app/login/**'
       - 'package.json'
       - '.github/workflows/verify-presentations.yml'
   workflow_dispatch:
