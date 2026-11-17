@@ -57,19 +57,17 @@ export function LoginForm({ hasError }: { hasError: boolean }) {
     const video = videoRef.current;
     if (!video) return;
 
+    // A transição após o login deve ser sempre silenciosa.
+    video.defaultMuted = true;
+    video.muted = true;
+    video.volume = 0;
     video.currentTime = 0;
-    video.volume = 1;
 
     const attemptPlay = async () => {
       try {
         await video.play();
       } catch {
-        try {
-          video.muted = true;
-          await video.play();
-        } catch {
-          finishTransition();
-        }
+        finishTransition();
       }
     };
 
@@ -197,6 +195,7 @@ export function LoginForm({ hasError }: { hasError: boolean }) {
                 className="login-transition-video"
                 src="/login/osp-login-transition.mp4"
                 preload="auto"
+                muted
                 playsInline
                 onEnded={finishTransition}
                 onError={finishTransition}
