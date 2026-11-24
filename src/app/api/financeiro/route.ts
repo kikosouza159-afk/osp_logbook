@@ -12,9 +12,9 @@ export async function GET(){
       logados::double precision AS logged, campaign_id AS "campaignId", nome_campanha AS campaign,
       virtual_agent_type_id AS agent, chamadas_tarifadas::double precision AS calls,
       valor_tarifado::double precision AS cost, data_hora_carga::text AS "updatedAt"
-      FROM osp_financial_billing ORDER BY data,cliente,nome_servidor,campaign_id,virtual_agent_type_id`);
+      FROM osp_financial_all ORDER BY data,cliente,nome_servidor,campaign_id,virtual_agent_type_id`);
     const updatedAt=result.rows.reduce<string|null>((latest,r)=>!latest||Date.parse(r.updatedAt)>Date.parse(latest)?r.updatedAt:latest,null);
     const rows=result.rows.map(({updatedAt:stamp,...row})=>{void stamp;return row;});
     return response({rows,updatedAt});
-  }catch{return response({error:"Base financeira indisponível. Verifique a migration 0019."},503);}
+  }catch{return response({error:"Base financeira indisponível. Verifique a migrations 0019 e 0020."},503);}
 }
