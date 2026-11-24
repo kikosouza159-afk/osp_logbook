@@ -10,9 +10,9 @@ export async function GET(){
   try{
     const result=await query<FinancialRow & {updatedAt:string}>(`SELECT COALESCE(c.display_name,c.name,f.cliente) AS client, f.cliente AS "sourceClient", c.id::text AS "clientId", nome_servidor AS server, to_char(data,'YYYY-MM-DD') AS date,
       logados::double precision AS logged, campaign_id AS "campaignId", nome_campanha AS campaign,
-      virtual_agent_type_id AS agent, chamadas_tarifadas::double precision AS calls,
+      virtual_agent_type_id AS agent, COALESCE(l.status,ls.status) AS lifecycle, chamadas_tarifadas::double precision AS calls,
       valor_tarifado::double precision AS cost, data_hora_carga::text AS "updatedAt"
-      FROM osp_financial_resolved f LEFT JOIN clients c ON c.id=f.resolved_client_id WHERE f.included_in_reporting ORDER BY data,f.cliente,nome_servidor,campaign_id,virtual_agent_type_id`);
+      FROM osp_financial_resolved f LEFT JOIN clients c ON c.id=f.resolved_client_id LEFT JOIN osp_financial_lifecycle l ON l.scope_key=f.resolved_client_id::text AND l.agent_type=f.virtual_agent_type_id LEFT JOIN osp_financial_lifecycle ls ON ls.scope_key='source:'||lower(trim(f.cliente)) AND ls.agent_type=f.virtual_agent_type_id WHERE f.included_in_reporting ORDER BY data,f.cliente,nome_servidor,campaign_id,virtual_agent_type_id`);
     const updatedAt=result.rows.reduce<string|null>((latest,r)=>!latest||Date.parse(r.updatedAt)>Date.parse(latest)?r.updatedAt:latest,null);
     const rows=result.rows.map(({updatedAt:stamp,...row})=>{void stamp;return row;});
     const starts=await query<BillingStart>(`SELECT c.id::text AS "clientId",COALESCE(c.display_name,c.name) AS client,

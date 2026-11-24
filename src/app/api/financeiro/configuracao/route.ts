@@ -9,7 +9,7 @@ const uuid=(s:unknown):s is string=>typeof s==="string"&&/^[0-9a-f]{8}-[0-9a-f]{
 export async function GET(){
   if((await getSessionUser())?.role!=="ADMIN")return response({error:"Acesso restrito."},403);
   try{
-    const [pairs,starts,sources,campaigns,servers]=await Promise.all([
+    const [pairs,starts,sources,campaigns,servers,lifecycle]=await Promise.all([
       query(`SELECT c.id::text AS "clientId",COALESCE(c.display_name,c.name) AS client,p.id::text AS "productId",CASE p.code WHEN 'LOCATOR' THEN '4' ELSE '5' END AS agent,
         c.active AS active FROM client_products cp JOIN clients c ON c.id=cp.client_id JOIN products p ON p.id=cp.product_id WHERE p.code IN ('LOCATOR','ADA') ORDER BY c.name,p.code`),
       query(`SELECT s.client_id::text AS "clientId",s.product_id::text AS "productId",COALESCE(c.display_name,c.name) AS client,CASE p.code WHEN 'LOCATOR' THEN '4' ELSE '5' END AS agent,
@@ -20,12 +20,13 @@ export async function GET(){
         FROM origins o LEFT JOIN osp_financial_client_map m ON m.source_client=o.source AND m.agent_type=o.agent LEFT JOIN clients c ON c.id=m.client_id ORDER BY m.client_id IS NOT NULL,o.label,o.agent`),
       query(`SELECT lower(trim(f.nome_servidor)) AS "serverKey",min(f.nome_servidor) AS server,f.campaign_id AS "campaignId",f.virtual_agent_type_id AS agent,
         max(f.nome_campanha) AS campaign,count(*)::int AS records,sum(f.valor_tarifado)::double precision AS cost,
-        cm.client_id::text AS "clientId",cm.product_id::text AS "productId",c.display_name AS client
+        cm.client_id::text AS "clientId",cm.product_id::text AS "productId",c.display_name AS client,f.shared_environment AS "sharedEnvironment"
         FROM osp_financial_resolved f LEFT JOIN osp_financial_campaign_map cm ON cm.server_key=lower(trim(f.nome_servidor)) AND cm.campaign_id=f.campaign_id AND cm.agent_type=f.virtual_agent_type_id
-        LEFT JOIN clients c ON c.id=cm.client_id WHERE f.shared_environment GROUP BY 1,3,4,8,9,10 ORDER BY 1,3,4`),
-      query(`SELECT host(sm.source_host) AS ip,sm.agent_type AS agent,c.display_name AS client FROM osp_financial_server_map sm JOIN clients c ON c.id=sm.client_id ORDER BY 1,2`)
+        LEFT JOIN clients c ON c.id=cm.client_id WHERE f.shared_environment OR (lower(trim(f.cliente))='energisa' AND f.virtual_agent_type_id='5') GROUP BY 1,3,4,8,9,10,11 ORDER BY 1,3,4`),
+      query(`SELECT host(sm.source_host) AS ip,sm.agent_type AS agent,c.display_name AS client FROM osp_financial_server_map sm JOIN clients c ON c.id=sm.client_id ORDER BY 1,2`),
+      query(`WITH subjects AS (SELECT COALESCE(f.resolved_client_id::text,'source:'||lower(trim(f.cliente))) AS "scopeKey",f.virtual_agent_type_id AS agent, min(COALESCE(c.display_name,f.cliente)) AS client FROM osp_financial_resolved f LEFT JOIN clients c ON c.id=f.resolved_client_id WHERE f.included_in_reporting GROUP BY 1,2) SELECT s.*,l.status,l.note FROM subjects s LEFT JOIN osp_financial_lifecycle l ON l.scope_key=s."scopeKey" AND l.agent_type=s.agent ORDER BY s.client,s.agent`)
     ]);
-    return response({pairs:pairs.rows,starts:starts.rows,sources:sources.rows,campaigns:campaigns.rows,servers:servers.rows});
+    return response({pairs:pairs.rows,starts:starts.rows,sources:sources.rows,campaigns:campaigns.rows,servers:servers.rows,lifecycle:lifecycle.rows});
   }catch{return response({error:"Não foi possível carregar as configurações financeiras."},503);}
 }
 export async function POST(request:Request){
@@ -36,7 +37,14 @@ export async function POST(request:Request){
   if(!request.headers.get("content-type")?.includes("application/json"))return response({error:"Formato inválido."},400);
   let b;try{b=await request.json();}catch{return response({error:"JSON inválido."},400);}
   if(!b||typeof b!=="object"||Array.isArray(b))return response({error:"Dados inválidos."},400);
-  const {action,clientId,productId,date,previousDate,pocStart,pocEnd,note,source,agent,serverKey,campaignId}=b;
+  const {action,clientId,productId,date,previousDate,pocStart,pocEnd,note,source,agent,serverKey,campaignId,scopeKey,status}=b;
+  if(action==="lifecycle"){
+    if(typeof scopeKey!=="string"||scopeKey.length>512||!["4","5"].includes(agent)||!["","POC_SEM_APROVACAO","SEM_POC"].includes(status)||typeof note!=="string"||note.length>500)return response({error:"Status inválido."},400);
+    try{if(status===""){await query("DELETE FROM osp_financial_lifecycle WHERE scope_key=$1 AND agent_type=$2",[scopeKey,agent]);return response({ok:true});}
+      const result=await query(`INSERT INTO osp_financial_lifecycle(scope_key,agent_type,status,note) SELECT $1,$2,$3,$4 WHERE EXISTS(SELECT 1 FROM osp_financial_resolved f WHERE f.included_in_reporting AND COALESCE(f.resolved_client_id::text,'source:'||lower(trim(f.cliente)))=$1 AND f.virtual_agent_type_id=$2) ON CONFLICT(scope_key,agent_type) DO UPDATE SET status=excluded.status,note=excluded.note,updated_at=now() RETURNING scope_key`,[scopeKey,agent,status,note.trim()]);
+      return result.rowCount?response({ok:true}):response({error:"Origem não encontrada."},404);
+    }catch{return response({error:"Não foi possível salvar o status."},503);}
+  }
   if(action==="excludeCampaign"){
     if(typeof serverKey!=="string"||typeof campaignId!=="string"||typeof agent!=="string")return response({error:"Campanha inválida."},400);
     try{await query("DELETE FROM osp_financial_campaign_map WHERE server_key=$1 AND campaign_id=$2 AND agent_type=$3",[serverKey,campaignId,agent]);return response({ok:true});}catch{return response({error:"Não foi possível excluir o vínculo."},503);}
@@ -53,7 +61,7 @@ export async function POST(request:Request){
     if(action==="mapCampaign"){
       if(typeof serverKey!=="string"||serverKey.length>256||typeof campaignId!=="string"||campaignId.length>100||agent!==(pair.rows[0].code==="LOCATOR"?"4":"5"))return response({error:"Campanha ou produto incompatível."},400);
       const result=await query(`INSERT INTO osp_financial_campaign_map(server_key,campaign_id,agent_type,client_id,product_id)
-        SELECT $1,$2,$3,$4::uuid,$5::uuid WHERE EXISTS(SELECT 1 FROM osp_financial_resolved WHERE shared_environment AND lower(trim(nome_servidor))=$1 AND campaign_id=$2 AND virtual_agent_type_id=$3)
+        SELECT $1,$2,$3,$4::uuid,$5::uuid WHERE EXISTS(SELECT 1 FROM osp_financial_resolved WHERE (shared_environment OR (lower(trim(cliente))='energisa' AND virtual_agent_type_id='5' AND EXISTS(SELECT 1 FROM clients c WHERE c.id=$4::uuid AND c.display_name IN ('Energisa - Cobrança','Energisa - SDR')))) AND lower(trim(nome_servidor))=$1 AND campaign_id=$2 AND virtual_agent_type_id=$3)
         ON CONFLICT(server_key,campaign_id,agent_type) DO UPDATE SET client_id=excluded.client_id,product_id=excluded.product_id RETURNING campaign_id`,[serverKey,campaignId,agent,clientId,productId]);
       return result.rowCount?response({ok:true}):response({error:"Campanha não encontrada."},404);
     }
