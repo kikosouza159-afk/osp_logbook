@@ -1,0 +1,66 @@
+-- IP and product links reference the existing operational registry.
+CREATE TABLE IF NOT EXISTS public.osp_financial_environment_candidates (
+ source_host inet NOT NULL,
+ agent_type text NOT NULL CHECK(agent_type IN ('4','5')),
+ client_id uuid NOT NULL REFERENCES public.clients(id) ON DELETE RESTRICT,
+ product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE RESTRICT,
+ PRIMARY KEY(source_host,agent_type,client_id)
+);
+WITH supplied(name,agent,ip) AS (VALUES ('Aranha e Ferreira','5','10.195.104.1'),
+('Aranha e Ferreira','4','10.195.104.1'),
+('Arauz','4','10.195.206.1'),
+('AssistPay','5','10.195.124.1'),
+('Boticário','5','10.195.202.11'),
+('Boticário','4','10.195.202.11'),
+('Brisanet','4','10.195.108.11'),
+('Cobrar Advogados','4','10.196.143.11'),
+('Creditas','4','10.195.150.11'),
+('Cruzeiro do Sul','5','10.195.124.1'),
+('DNR','4','10.196.107.12'),
+('Elo','4','10.195.228.11'),
+('EmDia','4','10.195.186.11'),
+('EmDia Lab','4','10.195.186.11'),
+('Energisa','5','10.195.114.12'),
+('Energisa - Cobrança','5','10.195.114.12'),
+('Energisa - SDR','5','10.195.114.12'),
+('Facto','4','10.196.113.11'),
+('Ferreira e Chagas','4','10.196.160.111'),
+('Ferreira e Chagas P3','4','10.196.160.111'),
+('Fiducial','4','10.196.155.11'),
+('Full Time','4','10.196.196.11'),
+('GVC Rodobens','4','10.178.26.11'),
+('Globalcob','4','10.196.173.12'),
+('Kainos','4','10.195.128.1'),
+('Link Solucoes','4','10.196.112.11'),
+('MB Finance','4','10.196.236.11'),
+('Martins e Copetti ADV','4','10.196.150.11'),
+('Max Recovery','4','10.196.208.211'),
+('MeetCall','4','10.196.169.11'),
+('NegocieOnline','5','10.195.124.1'),
+('NovaQuest','4','10.196.202.113'),
+('PagBank','5','10.195.124.1'),
+('Perez de Rezende','4','10.195.110.11'),
+('Precisão Global','4','10.196.164.11'),
+('Rede Brasil','4','10.196.108.12'),
+('Rede Brasil P4','4','10.196.140.12'),
+('Rede Brasil P5','4','10.196.177.12'),
+('Reis Advogados','4','10.178.14.12'),
+('Renac','4','10.196.111.12'),
+('SVV','4','10.196.139.11'),
+('Schulze','4','10.195.158.11'),
+('Setra','5','10.196.174.12'),
+('TRC TABORDA','4','10.196.220.21'),
+('Tahto','5','10.196.210.12'),
+('Talentos','4','10.196.218.11'),
+('VGX','4','10.196.186.113'),
+('Velloso','5','10.196.132.11'),
+('Verrechi','4','10.196.249.11'),
+('Verreschi','4','10.196.249.11'),
+('Winover','4','10.196.130.11'))
+INSERT INTO osp_financial_environment_candidates(source_host,agent_type,client_id,product_id)
+SELECT s.ip::inet,s.agent,c.id,p.id FROM supplied s JOIN clients c ON c.display_name=s.name JOIN products p ON p.code=CASE s.agent WHEN '4' THEN 'LOCATOR' ELSE 'ADA' END JOIN client_products cp ON cp.client_id=c.id AND cp.product_id=p.id
+ON CONFLICT(source_host,agent_type,client_id) DO NOTHING;
+INSERT INTO osp_financial_server_map(source_host,agent_type,client_id,product_id)
+SELECT e.source_host,e.agent_type,e.client_id,e.product_id FROM osp_financial_environment_candidates e
+WHERE NOT EXISTS(SELECT 1 FROM osp_financial_environment_candidates other WHERE other.source_host=e.source_host AND other.agent_type=e.agent_type AND other.client_id<>e.client_id)
+ON CONFLICT(source_host,agent_type) DO NOTHING;
