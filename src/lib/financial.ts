@@ -4,7 +4,7 @@ export const money = (v:number) => v.toLocaleString("pt-BR",{style:"currency",cu
 export const integer = (v:number) => v.toLocaleString("pt-BR",{maximumFractionDigits:0});
 export const unit = (v:number|null) => v===null ? "—" : v.toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:4,maximumFractionDigits:4});
 export const sum = (rows:FinancialRow[]) => {
-  const cost = rows.reduce((n,r)=>n+Math.round(r.cost*100),0)/100;
+  const cost = rows.reduce((n,r)=>n+r.cost,0);
   const calls = rows.reduce((n,r)=>n+r.calls,0);
   return {cost,calls,unit:calls>0?cost/calls:null,days:new Set(rows.map(r=>r.date)).size};
 };

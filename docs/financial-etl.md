@@ -1,0 +1,4 @@
+# ETL financeiro
+O painel lê exclusivamente osp_financial_billing no Neon. A importação Excel foi desativada. A tabela antiga foi preservada, mas não é usada. A atualização do painel ocorre a cada 60 segundos e no botão Atualizar dados. Apenas ADMIN possui acesso.
+O ETL Python roda dentro da rede privada, não no Render. Use um usuário SQL Server de leitura e uma conexão Neon com permissões limitadas às tabelas osp_financial_billing e osp_financial_etl_log. Não versionar credenciais, endereços internos ou dados financeiros.
+A chave é origem/IP, data, campanha, tipo de agente. Substituir somente a partição consultada com sucesso em transação; preservar dados anteriores em falha ou retorno vazio. Custo numeric(28,8), sem FORMAT no SQL. Não duplicar servidores compartilhados; segregação por campanha deve ser validada.
