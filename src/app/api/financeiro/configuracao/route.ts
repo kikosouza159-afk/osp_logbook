@@ -20,9 +20,9 @@ export async function GET(){
         FROM origins o LEFT JOIN osp_financial_client_map m ON m.source_client=o.source AND m.agent_type=o.agent LEFT JOIN clients c ON c.id=m.client_id ORDER BY m.client_id IS NOT NULL,o.label,o.agent`),
       query(`SELECT lower(trim(f.nome_servidor)) AS "serverKey",min(f.nome_servidor) AS server,f.campaign_id AS "campaignId",f.virtual_agent_type_id AS agent,
         max(f.nome_campanha) AS campaign,count(*)::int AS records,sum(f.valor_tarifado)::double precision AS cost,
-        cm.client_id::text AS "clientId",cm.product_id::text AS "productId",c.display_name AS client,f.shared_environment AS "sharedEnvironment"
+        CASE WHEN f.shared_environment THEN cm.client_id ELSE f.resolved_client_id END::text AS "clientId",CASE WHEN f.shared_environment THEN cm.product_id ELSE (SELECT id FROM products WHERE code='ADA') END::text AS "productId",c.display_name AS client,f.shared_environment AS "sharedEnvironment"
         FROM osp_financial_resolved f LEFT JOIN osp_financial_campaign_map cm ON cm.server_key=lower(trim(f.nome_servidor)) AND cm.campaign_id=f.campaign_id AND cm.agent_type=f.virtual_agent_type_id
-        LEFT JOIN clients c ON c.id=cm.client_id WHERE f.shared_environment OR (lower(trim(f.cliente))='energisa' AND f.virtual_agent_type_id='5') GROUP BY 1,3,4,8,9,10,11 ORDER BY 1,3,4`),
+        LEFT JOIN clients c ON c.id=CASE WHEN f.shared_environment THEN cm.client_id ELSE f.resolved_client_id END WHERE f.shared_environment OR (f.virtual_agent_type_id='5' AND (f.source_host='10.195.114.12'::inet OR lower(trim(f.nome_servidor))='olosengspodtb02')) GROUP BY 1,3,4,8,9,10,11 ORDER BY 1,3,4`),
       query(`SELECT host(e.source_host) AS ip,e.agent_type AS agent,c.display_name AS client,c.id::text AS "clientId",CASE WHEN sm.client_id=e.client_id THEN 'Direto' WHEN sm.client_id IS NOT NULL THEN 'Revisar vínculo' ELSE 'Por campanha / a confirmar' END AS status FROM osp_financial_environment_candidates e JOIN clients c ON c.id=e.client_id LEFT JOIN osp_financial_server_map sm ON sm.source_host=e.source_host AND sm.agent_type=e.agent_type UNION ALL SELECT host(sm.source_host),sm.agent_type,c.display_name,c.id::text,'Direto' FROM osp_financial_server_map sm JOIN clients c ON c.id=sm.client_id WHERE NOT EXISTS(SELECT 1 FROM osp_financial_environment_candidates e WHERE e.source_host=sm.source_host AND e.agent_type=sm.agent_type AND e.client_id=sm.client_id) ORDER BY 1,2,3`),
       query(`WITH subjects AS (SELECT COALESCE(f.resolved_client_id::text,'source:'||lower(trim(f.cliente))) AS "scopeKey",f.virtual_agent_type_id AS agent, min(COALESCE(c.display_name,f.cliente)) AS client FROM osp_financial_resolved f LEFT JOIN clients c ON c.id=f.resolved_client_id WHERE f.included_in_reporting GROUP BY 1,2) SELECT s.*,l.status,l.note FROM subjects s LEFT JOIN osp_financial_lifecycle l ON l.scope_key=s."scopeKey" AND l.agent_type=s.agent ORDER BY s.client,s.agent`)
     ]);
@@ -38,6 +38,9 @@ export async function POST(request:Request){
   let b;try{b=await request.json();}catch{return response({error:"JSON inválido."},400);}
   if(!b||typeof b!=="object"||Array.isArray(b))return response({error:"Dados inválidos."},400);
   const {action,clientId,productId,date,previousDate,pocStart,pocEnd,note,source,agent,serverKey,campaignId,scopeKey,status}=b;
+  if((action==="mapCampaign"||action==="excludeCampaign")&&agent==="5"&&typeof serverKey==="string"){
+    try{const fixed=await query(`SELECT 1 FROM osp_financial_resolved WHERE lower(trim(nome_servidor))=$1 AND virtual_agent_type_id='5' AND (source_host='10.195.114.12'::inet OR lower(trim(nome_servidor))='olosengspodtb02') LIMIT 1`,[serverKey]);if(fixed.rowCount)return response({error:"Energisa usa a regra automática: 345 Vendas, demais Cobrança."},400);}catch{return response({error:"Não foi possível validar a regra."},503);}
+  }
   if(action==="lifecycle"){
     if(typeof scopeKey!=="string"||scopeKey.length>512||!["4","5"].includes(agent)||!["","POC_SEM_APROVACAO","SEM_POC"].includes(status)||typeof note!=="string"||note.length>500)return response({error:"Status inválido."},400);
     try{if(status===""){await query("DELETE FROM osp_financial_lifecycle WHERE scope_key=$1 AND agent_type=$2",[scopeKey,agent]);return response({ok:true});}
