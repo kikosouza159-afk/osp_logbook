@@ -1,0 +1,23 @@
+name: Empacotar ETL Oportunidades Locator
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/locator-opportunity-etl/**'
+      - '.github/workflows/pack-locator-etl.yml'
+  workflow_dispatch:
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compactar somente ETL
+        run: zip -r Locator_Opportunity_ETL.zip tools/locator-opportunity-etl -x "*/__pycache__/*" "*.pyc" "*/.env" "*/servidores.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Locator_Opportunity_ETL
+          path: Locator_Opportunity_ETL.zip
+          if-no-files-found: error
+          retention-days: 30
