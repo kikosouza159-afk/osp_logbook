@@ -1,6 +1,6 @@
 /*
   Oportunidades Locator: consulta consolidada enviada pela operação.
-  Executada por etl_locator.py com dois parâmetros ODBC, ? início e ? fim.
+  Executada por etl_locator.py com dois parâmetros ODBC: início e fim.
   NÃO substituir os placeholders por concatenação de strings.
 
   Campos extras para o painel: VirtualAgentTypeId e MailingData.
