@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ClipboardCheck, BookOpenCheck, Siren, MessageSquareText, Building2,
-  Users, History, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Sparkles, ShieldCheck, RadioTower, Presentation, Wallet
+  Users, History, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Sparkles, ShieldCheck, RadioTower, Presentation, Wallet, Target
 } from "lucide-react";
 import { logoutAction } from "@/app/actions";
 import type { SessionUser } from "@/lib/auth";
@@ -27,6 +27,7 @@ const groups = [
       ["/analysts", "Analistas", Users],
       ["/apresentacao", "Apresentação", Presentation],
       ["/financeiro", "Financeiro", Wallet],
+      ["/oportunidades", "Oportunidades Locator", Target],
     ],
   },
   {
@@ -72,7 +73,7 @@ export function Sidebar({ user, collapsed, onToggle }: { user: SessionUser; coll
       {groups.map(group=><div className="elite-nav-group" key={group.label}>
         <span className="elite-nav-label">{group.label}</span>
         <div className="elite-nav-items">
-          {group.items.filter(([href]) => href !== '/financeiro' || user.role === 'ADMIN').map(([href,label,Icon]) => {
+          {group.items.filter(([href]) => (href !== '/financeiro' && href !== '/oportunidades') || user.role === 'ADMIN').map(([href,label,Icon]) => {
             const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
             return <Link
               prefetch={false}
