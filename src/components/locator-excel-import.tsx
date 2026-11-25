@@ -23,13 +23,13 @@ export function LocatorExcelImport({loaded,onImport,onClear}:{loaded:{name:strin
     const id=++token.current;setFile(null);setSheets([]);setSheet("");setError("");setBusy(false);if(!f)return;
     if(!/\.xlsx$/i.test(f.name)||f.size>10*1024*1024){setError("Selecione um Excel .xlsx de até 10 MB.");return;}
     setBusy(true);
-    try{const {readSheetNames}=await import("read-excel-file/browser");const names=await readSheetNames(f);if(id!==token.current)return;if(!names.length)throw Error("Arquivo sem planilhas.");setFile(f);setSheets(names);setSheet(names[0]);}
+    try{const {readSheetNames}=await import("read-excel-file");const names=await readSheetNames(f);if(id!==token.current)return;if(!names.length)throw Error("Arquivo sem planilhas.");setFile(f);setSheets(names);setSheet(names[0]);}
     catch(e){if(id===token.current)setError(e instanceof Error?e.message:"Não foi possível abrir o Excel.");}
     finally{if(id===token.current)setBusy(false);}
   }
   async function load(){
     if(!file||!sheet)return;const id=++token.current;setBusy(true);setError("");
-    try{const {default:read}=await import("read-excel-file/browser");const cells=await read(file,{sheet});const rows=parseOpportunityRows(cells);if(id===token.current)onImport(rows,file.name,sheet);}
+    try{const {default:read}=await import("read-excel-file");const cells=await read(file,{sheet});const rows=parseOpportunityRows(cells);if(id===token.current)onImport(rows,file.name,sheet);}
     catch(e){if(id===token.current)setError(e instanceof Error?e.message:"Falha na importação.");}
     finally{if(id===token.current)setBusy(false);}
   }
