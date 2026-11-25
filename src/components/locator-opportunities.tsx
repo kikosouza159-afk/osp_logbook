@@ -7,13 +7,8 @@ import {
   RefreshCw, Search, SlidersHorizontal, Sparkles, Target, Users, X
 } from "lucide-react";
 import "./locator-opportunities.css";
-
-type Daily = {
-  server: string; date: string; campaignId: string; campaign: string;
-  client: string; mappingStatus: "RESOLVED" | "UNRESOLVED";
-  agentType: number | null; mailing: number | null; mailingDate: string | null;
-  logged: number; attempts: number; answered: number;
-};
+import { LocatorExcelImport } from "./locator-excel-import";
+import type { Daily } from "@/lib/locator-excel";
 type Campaign = {
   key: string; client: string; server: string; campaign: string; campaignId: string;
   agentType: number | null; mapped: boolean; daily: Daily[]; days: number;
@@ -97,7 +92,7 @@ function FunnelStep({label,value,sub}:{label:string;value:number|null;sub:string
   return <div className="lo-funnel-step"><span>{label}</span><strong>{fmt(value)}</strong><small>{sub}</small></div>;
 }
 
-function Detail({campaign,onClose}:{campaign:Campaign;onClose:()=>void}){
+function Detail({campaign,onClose,excel=false}:{campaign:Campaign;onClose:()=>void;excel?:boolean}){
   const [spin,setSpin]=useState(Math.max(0.01,campaign.spin ?? 1));
   const [cpcRate,setCpcRate]=useState(29.4);
   const [agreementRate,setAgreementRate]=useState(4.4);
@@ -127,7 +122,7 @@ function Detail({campaign,onClose}:{campaign:Campaign;onClose:()=>void}){
       </header>
       <div className="lo-modal-body">
         {!campaign.mapped&&<div className="lo-warning"><CircleAlert size={17}/> Vínculo cliente/campanha ainda não confirmado neste ambiente compartilhado. Valide antes de tomar decisões.</div>}
-        {campaign.mailing===null&&<div className="lo-warning"><CircleAlert size={17}/> Mailing não disponível no ETL. O funil será calculado após a extração do ReportImport.</div>}
+        {campaign.mailing===null&&<div className="lo-warning"><CircleAlert size={17}/> {excel?"Mailing não informado no Excel. Complete os dados para calcular o funil.":"Mailing não disponível no ETL. O funil será calculado após a extração do ReportImport."}</div>}
         <div className="lo-modal-grid">
           <article className="lo-panel">
             <div className="lo-section-head"><div><small>OPERAÇÃO ATUAL</small><h3>Indicadores observados</h3></div><span className="lo-tag">Média diária</span></div>
@@ -185,7 +180,7 @@ function Detail({campaign,onClose}:{campaign:Campaign;onClose:()=>void}){
             <thead><tr><th>Data</th><th>Mailing</th><th>Logados</th><th>Tentativas</th><th>Atendidas</th><th>Hit%</th><th>Spin</th></tr></thead>
             <tbody>{[...daily].reverse().map(r=><tr key={r.date}><td>{r.date.split("-").reverse().join("/")}</td><td>{fmt(r.mailing)}</td><td>{fmt(r.logged)}</td><td>{fmt(r.attempts)}</td><td>{fmt(r.answered)}</td><td>{pct(r.attempts>0?100*r.answered/r.attempts:0)}</td><td>{fmt(r.mailing&&r.mailing>0?r.attempts/r.mailing:null,2)}</td></tr>)}</tbody>
           </table></div>
-          <p className="lo-fineprint">Atendidas seguem a definição da consulta de origem: AgentId &gt; 0. O Mailing mantém a última importação bem-sucedida até a data do evento.</p>
+          <p className="lo-fineprint">{excel?"Indicadores conforme os valores informados no Excel. Confirme que a definição de atendidas é consistente com a operação.":"Atendidas seguem a definição da consulta de origem: AgentId > 0. O Mailing mantém a última importação bem-sucedida até a data do evento."}</p>
         </article>
       </div>
     </section>
@@ -222,7 +217,9 @@ function BubbleMap({campaigns,onPick}:{campaigns:Campaign[];onPick:(c:Campaign)=
 }
 
 export function LocatorOpportunities(){
-  const [data,setData]=useState<ApiData>({rows:[],range:null,updatedAt:null});
+  const [source,setSource]=useState<"etl"|"excel">("etl");
+  const [excel,setExcel]=useState<{name:string;sheet:string;rows:Daily[]}|null>(null);
+  const [etlData,setData]=useState<ApiData>({rows:[],range:null,updatedAt:null});
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
   const [refresh,setRefresh]=useState(0);
@@ -235,7 +232,12 @@ export function LocatorOpportunities(){
   const [selected,setSelected]=useState<Campaign|null>(null);
   const [explain,setExplain]=useState(false);
 
+  function resetFilters(){setStart("");setEnd("");setClient("Todos");setTextFilter("");setShowLocator(true);setShowUnmapped(false);setSelected(null);}
+  function switchSource(next:"etl"|"excel"){if(next!==source){resetFilters();setError("");setSource(next);}}
+  const excelRange=useMemo(()=>{if(!excel?.rows.length)return null;let start=excel.rows[0].date,end=start;for(const r of excel.rows){if(r.date<start)start=r.date;if(r.date>end)end=r.date;}return {start,end};},[excel]);
+  const data=useMemo<ApiData>(()=>source==="etl"?etlData:{rows:excel?.rows.filter(r=>(!start||r.date>=start)&&(!end||r.date<=end))??[],range:excelRange,updatedAt:null},[source,etlData,excel,excelRange,start,end]);
   useEffect(()=>{
+    if(source!=="etl"){setLoading(false);return;}
     let cancelled=false;const controller=new AbortController();
     (async()=>{setLoading(true);setError("");try{
       const p=new URLSearchParams();if(start)p.set("start",start);if(end)p.set("end",end);
@@ -245,7 +247,7 @@ export function LocatorOpportunities(){
     }catch(e){if(!cancelled&&!(e instanceof Error&&e.name==="AbortError"))setError(e instanceof Error?e.message:"Falha de rede");}
     finally{if(!cancelled)setLoading(false);}})();
     return()=>{cancelled=true;controller.abort();};
-  },[refresh,start,end]);
+  },[refresh,start,end,source]);
 
   const all=useMemo(()=>summarise(data.rows),[data.rows]);
   const clients=useMemo(()=>["Todos",...new Set(all.map(c=>c.client))].sort((a,b)=>a==="Todos"?-1:b==="Todos"?1:a.localeCompare(b,"pt-BR")),[all]);
@@ -266,8 +268,11 @@ export function LocatorOpportunities(){
         <h1>Mapa de Oportunidades <span>Locator</span></h1>
         <p>Encontre campanhas com espaço para automatizar o esforço, dimensionar transferências e otimizar o HC.</p>
       </div>
-      <button className="lo-btn lo-btn-ghost" onClick={()=>setRefresh(n=>n+1)} disabled={loading}><RefreshCw size={16} className={loading?"lo-rotate":""}/> Atualizar</button>
+      {source==="etl"&&<button className="lo-btn lo-btn-ghost" onClick={()=>setRefresh(n=>n+1)} disabled={loading}><RefreshCw size={16} className={loading?"lo-rotate":""}/> Atualizar</button>}
     </div>
+    <nav className="lo-source-tabs" aria-label="Fonte dos dados"><button className={source==="etl"?"active":""} aria-pressed={source==="etl"} onClick={()=>switchSource("etl")}><Activity size={17}/> Base automática · ETL</button><button className={source==="excel"?"active":""} aria-pressed={source==="excel"} onClick={()=>switchSource("excel")}><BarChart3 size={17}/> Importar Excel</button></nav>
+    {source==="excel"&&<LocatorExcelImport loaded={excel} onImport={(rows,name,sheet)=>{setExcel({rows,name,sheet});resetFilters();}} onClear={()=>{setExcel(null);resetFilters();}}/>}
+    {source==="excel"&&!excel?<div className="lo-empty">Importe um arquivo para gerar uma análise independente do ETL.</div>:<>
     <div className="lo-toolbar lo-panel">
       <label><span>Cliente</span><select value={client} onChange={e=>setClient(e.target.value)}>{clients.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
       <label><span>Período inicial</span><input type="date" value={start||data.range?.start||""} onChange={e=>setStart(e.target.value)}/></label>
@@ -316,11 +321,12 @@ export function LocatorOpportunities(){
             <td><button className="lo-detail-btn" onClick={()=>setSelected(c)}>Detalhar <ChevronRight size={15}/></button></td>
           </tr>)}</tbody>
         </table></div>
-        {!ranked.length&&<div className="lo-empty">Sem dados neste filtro. Confira a última carga ETL e as opções de vínculos.</div>}
+        {!ranked.length&&<div className="lo-empty">Sem dados neste filtro. {source==="excel"?"Confira o período e os filtros do arquivo importado.":"Confira a última carga ETL e as opções de vínculos."}</div>}
       </article>
-      <div className="lo-footer"><span>Atualização da base: {data.updatedAt?new Date(data.updatedAt).toLocaleString("pt-BR"):"Ainda sem carga"} · Fonte SQL Server → Neon</span><span>Índice de 0 a 100 · Hit% informativo, fora do score</span></div>
+      <div className="lo-footer"><span>{source==="excel"?"Fonte exclusiva: "+excel?.name+" / "+excel?.sheet:"Atualização da base: "+(data.updatedAt?new Date(data.updatedAt).toLocaleString("pt-BR"):"Ainda sem carga")+" · Fonte SQL Server → Neon"}</span><span>Índice de 0 a 100 · Hit% informativo, fora do score</span></div>
     </>}
-    {selected&&<Detail key={selected.key} campaign={selected} onClose={()=>setSelected(null)}/>}
+    </>}
+    {selected&&<Detail key={selected.key} campaign={selected} excel={source==="excel"} onClose={()=>setSelected(null)}/>}
     {explain&&<div className="lo-overlay" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setExplain(false);}}><section className="lo-explain lo-panel" role="dialog" aria-modal="true">
       <div className="lo-section-head"><div><small>METODOLOGIA TRANSPARENTE</small><h2>Índice de Oportunidade Locator</h2></div><button className="lo-icon-button" onClick={()=>setExplain(false)}><X size={20}/></button></div>
       <p>O índice atribui até 25 pontos para cada dimensão. É uma curva contínua: valores acima dos limites de referência continuam crescendo, sem eliminar campanhas menores.</p>
