@@ -7,8 +7,9 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+set "ETL_DIR=%CD%"
 set "PYTHON_EXE="
-for /f "usebackq delims=" %%I in (`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0localizar_python.ps1" -Quiet`) do (
+for /f "usebackq delims=" %%I in (`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ETL_DIR%\localizar_python.ps1" -Quiet`) do (
   if not defined PYTHON_EXE set "PYTHON_EXE=%%I"
 )
 if not defined PYTHON_EXE (
@@ -17,10 +18,9 @@ if not defined PYTHON_EXE (
   pause
   exit /b 1
 )
-"%PYTHON_EXE%" "%~dp0etl_locator.py" %*
+"%PYTHON_EXE%" "%ETL_DIR%\etl_locator.py" %*
 set "EXITCODE=%ERRORLEVEL%"
 echo.
 if not "%EXITCODE%"=="0" echo [ERRO] ETL retornou codigo %EXITCODE%. Verifique os logs.
 popd
-pause
 exit /b %EXITCODE%

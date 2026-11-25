@@ -89,11 +89,38 @@ def resolve_client(source: dict, campaign_id: int) -> tuple[str, str]:
     return "A validar · " + origin, "UNRESOLVED"
 
 
+def select_odbc_driver(installed: list[str], configured: str = "auto") -> str:
+    """Resolve against drivers visible to the actual Python process."""
+    available = {name.casefold(): name for name in installed}
+    requested = configured.strip()
+    if requested and requested.casefold() != "auto":
+        if not re.fullmatch(r"[\w .()+-]+", requested):
+            raise ValueError("Nome de driver ODBC inválido.")
+        if requested.casefold() in available:
+            return available[requested.casefold()]
+    for name in ("ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"):
+        if name.casefold() in available:
+            selected = available[name.casefold()]
+            if requested and requested.casefold() != "auto":
+                LOG.warning("Driver solicitado (%s) indisponível; usando %s.", requested, selected)
+            return selected
+    raise RuntimeError("Nenhum ODBC Driver 17 ou 18 para SQL Server disponível neste Python. "
+                       "Drivers visíveis: " + (", ".join(installed) or "(nenhum)") +
+                       ". Instale um driver compatível com a arquitetura do Python.")
+
+
+def preflight_odbc() -> str:
+    import pyodbc
+    configured = os.getenv("SQL_ODBC_DRIVER", "auto")
+    driver = select_odbc_driver(pyodbc.drivers(), configured)
+    LOG.info("Python: %s | ODBC selecionado: %s", sys.executable, driver)
+    os.environ["SQL_ODBC_DRIVER"] = driver
+    return driver
+
+
 def sql_connection(host: str):
     import pyodbc
-    driver = os.environ.get("SQL_ODBC_DRIVER", "ODBC Driver 18 for SQL Server")
-    if not re.fullmatch(r"[\w .()+-]+", driver):
-        raise ValueError("Nome de driver ODBC inválido.")
+    driver = select_odbc_driver(pyodbc.drivers(), os.getenv("SQL_ODBC_DRIVER", "auto"))
     parts = [
         "DRIVER={" + driver + "}",
         "SERVER=" + host + "," + str(int(os.getenv("SQL_PORT", "1433"))),
@@ -106,7 +133,7 @@ def sql_connection(host: str):
         parts.append("Trusted_Connection=yes")
     else:
         parts.extend(["UID=" + required("SQL_USER"), "PWD=" + required("SQL_PASSWORD")])
-    cn = pyodbc.connect(";".join(parts) + ";", timeout=15, autocommit=True)
+    cn = pyodbc.connect(";".join(parts) + ";", timeout=int(os.getenv("SQL_CONNECT_TIMEOUT", "15")), autocommit=True)
     cn.timeout = int(os.getenv("SQL_QUERY_TIMEOUT", "1800"))
     return cn
 
@@ -283,7 +310,15 @@ def run():
     parser.add_argument("--host", help="Processar somente este host do JSON")
     parser.add_argument("--servers", default=os.getenv("LOCATOR_SERVERS_FILE", str(BASE/"servidores.json")))
     parser.add_argument("--dry-run", action="store_true", help="Consulta sem gravar no PostgreSQL")
+    parser.add_argument("--check-driver", action="store_true", help="Valida Python e driver ODBC sem consultar servidores ou Neon")
     args = parser.parse_args()
+    try:
+        preflight_odbc()
+    except (ImportError, RuntimeError, ValueError) as exc:
+        LOG.error("Falha na validação local do ODBC: %s", exc)
+        return 1
+    if args.check_driver:
+        return 0
     if args.days<1 or args.days>366:
         parser.error("--days deve estar entre 1 e 366")
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()

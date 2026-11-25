@@ -9,7 +9,7 @@ O Next.js é hospedado normalmente; o Python é executado **na rede interna Wind
 2. Execute `INSTALAR_DEPENDENCIAS.bat`. Caso não exista Python >= 3.10, o script usa **python-3.13.15-amd64.exe** de `\\10.15.5.30\Variados\Gerber\ETL\Cockipt\runtime\installer`.
    - O `.exe` não é versionado ou distribuído com o projeto.
    - Se a pasta da rede possuir subpasta `wheels`, o pip instala pacotes offline dela. Se não, é necessário acesso ao índice pip corporativo ou Internet.
-   - Também é necessário **Microsoft ODBC Driver 18 for SQL Server**, instalado separadamente.
+   - Também é necessário **Microsoft ODBC Driver 17 ou 18 for SQL Server**, instalado separadamente, com a mesma arquitetura do Python. O ETL valida os drivers disponíveis antes de acessar qualquer servidor ou Neon.
 3. Copie `.env.example` para `.env`; informe credenciais de **somente leitura** do SQL Server e um usuário PostgreSQL restrito às tabelas OSP Locator.
 4. Copie o JSON de referência `servidores(4).json` para **`servidores.json`** nesta pasta ou informe `LOCATOR_SERVERS_FILE=C:\caminho\servidores.json` no `.env`.
    **Nunca faça commit desse JSON ou do `.env`**. O repositório GitHub é público.
@@ -22,6 +22,7 @@ Na pasta do ETL, no CMD:
 
 ```bat
 INSTALAR_DEPENDENCIAS.bat
+EXECUTAR_ETL.bat --check-driver
 EXECUTAR_ETL.bat --start 2026-11-10 --end 2026-11-16 --dry-run
 EXECUTAR_ETL.bat --start 2026-11-10 --end 2026-11-16
 EXECUTAR_ETL.bat --days 1
@@ -87,3 +88,5 @@ ORDER BY data DESC LIMIT 30;
 **SQL original adaptado:** `sql/consulta_consolidada.sql` reproduz a consulta recebida e acrescenta apenas os campos `VirtualAgentTypeId` e `MailingData`, necessários ao painel e à auditoria da origem do mailing.
 
 **Execução por período:** um comando `--start/--end` extrai todo o intervalo por host, incluindo a lista de partições ausentes. Um erro em um host não impede consultar os demais; o comando termina com código de erro se alguma origem falhar. A carga continua idempotente no Neon.
+
+**Diagnóstico IM002:** use `EXECUTAR_ETL.bat --check-driver`. O modo não consulta servidores nem conecta ao Neon. O driver configurado é respeitado quando instalado; se indisponível, o ETL tenta 17 e depois 18 e registra a escolha. Se nenhum estiver disponível, termina antes de percorrer os hosts. Não altera as opções de criptografia do .env. No CMD, entre primeiro na pasta de rede com `pushd "caminho UNC"` para evitar o aviso de diretório UNC. O BAT usa o caminho mapeado pelo pushd e retorna o código de saída sem pausa ao terminar, permitindo agendamento.
