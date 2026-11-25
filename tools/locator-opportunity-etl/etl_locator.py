@@ -20,8 +20,7 @@ from zoneinfo import ZoneInfo
 
 BASE = Path(__file__).resolve().parent
 LOG = logging.getLogger("locator-etl")
-SOURCE_DB = "ExportDataV3"
-LINKED_REPORT = "OLOSMEFFLADTB01.ImportExportControl.dbo.ReportImport"
+QUERY_FILE = BASE / "sql" / "consulta_consolidada.sql"
 
 
 def env_load() -> None:
@@ -108,91 +107,52 @@ def sql_connection(host: str):
     else:
         parts.extend(["UID=" + required("SQL_USER"), "PWD=" + required("SQL_PASSWORD")])
     cn = pyodbc.connect(";".join(parts) + ";", timeout=15, autocommit=True)
-    cn.timeout = int(os.getenv("SQL_QUERY_TIMEOUT", "240"))
+    cn.timeout = int(os.getenv("SQL_QUERY_TIMEOUT", "1800"))
     return cn
 
 
-def source_table(cursor, day: date) -> str | None:
-    suffix = day.strftime("%Y_%m_%d")
-    choices = (["AttemptsRawData"] if day == datetime.now(ZoneInfo("America/Sao_Paulo")).date() else []) + [
-        "AttemptsRawData_" + suffix
-    ]
-    for table in choices:
-        object_name = f"{SOURCE_DB}.dbo.{table}"
-        cursor.execute("SELECT OBJECT_ID(?, 'U')", object_name)
-        if cursor.fetchone()[0] is not None:
-            return table
-    return None
+def as_date(value):
+    """Converte a data retornada por pyodbc sem alterar o dia local."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
 
 
-def extract_calls(cursor, day: date, table: str) -> list[dict]:
-    # A tabela vem exclusivamente de source_table(), nunca de entrada de usuário.
-    if not re.fullmatch(r"AttemptsRawData(?:_\d{4}_\d{2}_\d{2})?", table):
-        raise ValueError("Tabela de tentativas fora do padrão permitido.")
-    sql = f"""
-    SELECT @@SERVERNAME AS Nome_Servidor, CAST(a.StartDate AS DATE) AS Data,
-      a.CampaignId, MAX(b.Description) AS NomeCampanha,
-      MAX(TRY_CONVERT(INT,b.VirtualAgentTypeId)) AS VirtualAgentTypeId,
-      COUNT(DISTINCT CASE WHEN a.AgentId > 0 THEN a.AgentId END) AS Logados,
-      COUNT_BIG(*) AS Tentativas,
-      SUM(CASE WHEN a.AgentId > 0 THEN CONVERT(bigint,1) ELSE CONVERT(bigint,0) END) AS Atendidas
-    FROM {SOURCE_DB}.dbo.[{table}] a WITH(NOLOCK)
-    INNER JOIN SysConfiguration.dbo.Campaign b WITH(NOLOCK)
-      ON a.CampaignId = b.CampaignId
-    WHERE a.StartDate >= ? AND a.StartDate < ?
-    GROUP BY CAST(a.StartDate AS DATE), a.CampaignId
+def extract_period(cursor, start: date, end: date) -> tuple[list[dict], list[dict]]:
+    """Executa uma consulta consolidada por servidor e lê os dois result sets.
+
+    1) Funil por dia/campanha; 2) tabelas históricas não encontradas.
+    SET NOCOUNT ON evita os contadores intermediários de linhas do T-SQL.
     """
-    cursor.execute(sql, day, day + timedelta(days=1))
-    columns = [c[0] for c in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
-
-
-def fetch_mailing(cursor, day: date, campaign_ids: list[int], report_table: str = LINKED_REPORT) -> dict[int, tuple[int, date]]:
-    """Última carga por campanha até a data; deduplica arquivos da mesma família.
-
-    O original particionava por data e filename apenas. Acrescentar CampaignId
-    evita misturar importações homônimas de campanhas diferentes.
-    """
-    if report_table not in (LINKED_REPORT, "ImportExportControl.dbo.ReportImport"):
-        raise ValueError("Origem de Mailing fora da lista permitida.")
-    if not campaign_ids:
-        return {}
-    unique_ids = sorted(set(int(i) for i in campaign_ids))
-    output: dict[int, tuple[int, date]] = {}
-    # Cada lote limita a quantidade de parâmetros do SQL Server.
-    for offset in range(0, len(unique_ids), 250):
-        ids = unique_ids[offset:offset+250]
-        placeholders = ",".join("?" for _ in ids)
-        sql = f"""
-        ;WITH MailingBase AS (
-          SELECT CONVERT(date,RI.DateProccess) AS Data,
-            RI.CampaignId,
-            LEFT(RI.FileName, LEN(RI.FileName) - CHARINDEX('_', REVERSE(RI.FileName))) AS FileName_Base,
-            RI.TotalRecordsImported,
-            ROW_NUMBER() OVER (
-              PARTITION BY CONVERT(date,RI.DateProccess),RI.CampaignId,
-                LEFT(RI.FileName,LEN(RI.FileName)-CHARINDEX('_',REVERSE(RI.FileName)))
-              ORDER BY RI.DateProccess DESC
-            ) AS RN
-          FROM {report_table} RI WITH(NOLOCK)
-          WHERE RI.ImportStatusId=3 AND RI.CampaignId IN ({placeholders})
-            AND RI.DateProccess < DATEADD(day,1,CONVERT(date,?))
-        ), MailingDia AS (
-          SELECT Data,CampaignId,SUM(CAST(TotalRecordsImported AS bigint)) AS Mailing
-          FROM MailingBase WHERE RN=1
-          GROUP BY Data,CampaignId
-        ), Ultimo AS (
-          SELECT *,ROW_NUMBER() OVER(PARTITION BY CampaignId ORDER BY Data DESC) AS U
-          FROM MailingDia
+    sql = QUERY_FILE.read_text(encoding="utf-8-sig")
+    cursor.execute(sql, start, end)
+    calls = None
+    missing = None
+    expected = {"data", "campaignid", "nomecampanha", "mailing",
+                "logados", "tentativas", "atendidas", "nome_servidor"}
+    while True:
+        if cursor.description is not None:
+            cols = [c[0] for c in cursor.description]
+            lowered = {c.lower() for c in cols}
+            rows = [dict(zip(cols, record)) for record in cursor.fetchall()]
+            if expected.issubset(lowered):
+                if calls is not None:
+                    raise RuntimeError("Consulta retornou mais de um resultado de chamadas.")
+                calls = rows
+            elif {"data", "nometabela"}.issubset(lowered):
+                if missing is not None:
+                    raise RuntimeError("Consulta retornou mais de um resultado de tabelas ausentes.")
+                missing = rows
+        if not cursor.nextset():
+            break
+    if calls is None or missing is None:
+        raise RuntimeError(
+            "A consulta SQL deve retornar dois conjuntos: chamadas e tabelas ausentes. "
+            "Verifique o script sql/consulta_consolidada.sql."
         )
-        SELECT CampaignId,Data,Mailing FROM Ultimo WHERE U=1
-        """
-        cursor.execute(sql, *ids, day)
-        for campaign, source_date, mailing in cursor.fetchall():
-            if mailing is not None:
-                source_day = source_date.date() if isinstance(source_date, datetime) else source_date
-                output[int(campaign)] = int(mailing), source_day
-    return output
+    return calls, missing
 
 
 UPSERT = """
@@ -215,7 +175,8 @@ def pg_connection():
     url = os.getenv("DATABASE_URL_UNPOOLED") or required("DATABASE_URL")
     # O TLS é obrigatório para a base remota.
     return psycopg.connect(url, sslmode=os.getenv("PG_SSLMODE", "require"),
-                           connect_timeout=15, application_name="osp-locator-opportunity-etl")
+                           connect_timeout=15, autocommit=True,
+                           application_name="osp-locator-opportunity-etl")
 
 
 def log_run(pg, host: str, day: date, status: str, count=0, message=""):
@@ -227,75 +188,89 @@ def log_run(pg, host: str, day: date, status: str, count=0, message=""):
         """, (host, day, status, count, message[:2000]))
 
 
-def process(pg, source: dict, day: date, dry_run: bool):
+def process_period(pg, source: dict, start: date, end: date, dry_run: bool):
+    """Extrai o período uma vez por servidor; persiste em transações por dia."""
     host = source["host"]
     sql_cn = sql_connection(host)
     try:
-        cur = sql_cn.cursor()
-        table = source_table(cur, day)
-        if table is None:
-            LOG.warning("%s %s | Tabela particionada não encontrada. Dados preservados.", host, day)
-            if not dry_run:
-                log_run(pg, host, day, "SKIPPED", message="Tabela AttemptsRawData não encontrada.")
-            return "SKIPPED", 0
-        rows = extract_calls(cur, day, table)
-        if not rows:
-            LOG.info("%s %s | Nenhuma tentativa na partição. Dados preservados.", host, day)
-            if not dry_run:
-                log_run(pg, host, day, "EMPTY", message="Consulta sem linhas; sem exclusões.")
-            return "EMPTY", 0
-        mailing_warning = ""
-        ids = [r["CampaignId"] for r in rows]
-        try:
-            mailings = fetch_mailing(cur, day, ids)
-        except Exception as first_exc:
-            # Nem todo SQL Server tem o linked server OLOSMEFFLADTB01 configurado.
-            # Fallback: consultar o servidor de Import diretamente, se acessível.
-            LOG.warning("%s %s | Linked server indisponível (%s); tentando conexão direta ao Mailing.",
-                        host, day, type(first_exc).__name__)
-            mail_cn = None
-            try:
-                mail_cn = sql_connection(os.getenv("MAILING_SQL_HOST", "OLOSMEFFLADTB01"))
-                mailings = fetch_mailing(mail_cn.cursor(),day,ids,"ImportExportControl.dbo.ReportImport")
-            except Exception as second_exc:
-                mailings = {}
-                mailing_warning = "ReportImport inacessível; Mailing NULL"
-                LOG.warning("%s %s | %s (%s)",host,day,mailing_warning,type(second_exc).__name__)
-            finally:
-                if mail_cn is not None:
-                    mail_cn.close()
-        values = []
-        missing = 0
-        for r in rows:
-            cid = int(r["CampaignId"])
-            client, status = resolve_client(source, cid)
-            mailing = mailings.get(cid)
-            if mailing is None:
-                missing += 1
-            values.append((
-                host, day, str(cid), str(r["Nome_Servidor"] or source["client"]),
-                client, status, str(r["NomeCampanha"] or f"Campanha {cid}"),
-                r["VirtualAgentTypeId"], mailing[0] if mailing else None,
-                mailing[1] if mailing else None,
-                int(r["Logados"]), int(r["Tentativas"]), int(r["Atendidas"]),
-            ))
-        status = "PARTIAL" if missing else "SUCCESS"
-        LOG.info("%s %s | %s linhas | %s sem Mailing | %s", host, day, len(values), missing, status)
-        if dry_run:
-            return status, len(values)
-        # Idempotente, transação por servidor+dia. Falha nunca apaga carga anterior.
-        with pg.transaction():
-            with pg.cursor() as cursor:
-                cursor.executemany(UPSERT, values)
-                cursor.execute("""
-                    INSERT INTO osp_locator_opportunity_etl_log
-                    (source_host,load_date,status,row_count,message)
-                    VALUES (%s::inet,%s::date,%s,%s,%s)
-                """, (host,day,status,len(values),
-                      f"{missing} campanhas sem Mailing. {mailing_warning}"))
-        return status, len(values)
+        calls, missing_tables = extract_period(sql_cn.cursor(), start, end)
     finally:
         sql_cn.close()
+
+    # O SQL devolve datas de tabelas inexistentes em segundo result set.
+    missing_by_day = {as_date(row["Data"]): str(row["NomeTabela"])
+                      for row in missing_tables}
+    by_day: dict[date, list[dict]] = {}
+    seen: set[tuple[date, int]] = set()
+    for row in calls:
+        day = as_date(row["Data"])
+        cid = int(row["CampaignId"])
+        if not start <= day <= end:
+            raise ValueError(f"Data fora do intervalo retornada pelo SQL Server: {day}")
+        if day in missing_by_day:
+            raise ValueError(f"Dia {day} com chamadas e tabela ausente ao mesmo tempo.")
+        if (day, cid) in seen:
+            raise ValueError(f"Campanha duplicada na extração: {host}, {day}, {cid}")
+        seen.add((day, cid))
+        by_day.setdefault(day, []).append(row)
+
+    stats = {"SUCCESS": 0, "PARTIAL": 0, "SKIPPED": 0, "EMPTY": 0}
+    count = 0
+    day = start
+    while day <= end:
+        if day in missing_by_day:
+            status = "SKIPPED"
+            message = f"Tabela histórica ausente: {missing_by_day[day]}. Dados anteriores preservados."
+            LOG.warning("%s %s | %s", host, day, message)
+            if not dry_run:
+                log_run(pg, host, day, status, message=message)
+        else:
+            rows = by_day.get(day, [])
+            if not rows:
+                status = "EMPTY"
+                message = "Consulta sem chamadas no dia; dados anteriores preservados."
+                LOG.info("%s %s | %s", host, day, message)
+                if not dry_run:
+                    log_run(pg, host, day, status, message=message)
+            else:
+                values = []
+                null_mailing = 0
+                for row in rows:
+                    cid = int(row["CampaignId"])
+                    client, mapping = resolve_client(source, cid)
+                    mailing = row["Mailing"]
+                    if mailing is None:
+                        null_mailing += 1
+                    values.append((
+                        host, day, str(cid),
+                        str(row["Nome_Servidor"] or source.get("client") or host),
+                        client, mapping,
+                        str(row["NomeCampanha"] or f"Campanha {cid}"),
+                        int(row["VirtualAgentTypeId"]) if row.get("VirtualAgentTypeId") is not None else None,
+                        int(mailing) if mailing is not None else None,
+                        as_date(row["MailingData"]) if row.get("MailingData") is not None else None,
+                        int(row["Logados"]), int(row["Tentativas"]), int(row["Atendidas"]),
+                    ))
+                status = "PARTIAL" if null_mailing else "SUCCESS"
+                LOG.info("%s %s | %s campanhas; %s sem Mailing | %s",
+                         host, day, len(values), null_mailing, status)
+                if not dry_run:
+                    # Autocommit=True com transação explícita, garantindo COMMIT no Neon.
+                    with pg.transaction():
+                        with pg.cursor() as cursor:
+                            cursor.executemany(UPSERT, values)
+                            cursor.execute("""
+                                INSERT INTO osp_locator_opportunity_etl_log
+                                (source_host,load_date,status,row_count,message)
+                                VALUES (%s::inet,%s::date,%s,%s,%s)
+                            """, (host, day, status, len(values),
+                                  f"{null_mailing} campanhas sem Mailing. Consulta consolidada."))
+                count += len(values)
+        stats[status] += 1
+        day += timedelta(days=1)
+    LOG.info("%s | %s a %s | %s registros | status %s | dry-run=%s",
+             host, start, end, count, stats, dry_run)
+    return stats, count
 
 
 def run():
@@ -328,21 +303,19 @@ def run():
     failed=0
     pg=None if args.dry_run else pg_connection()
     try:
-        day=start
-        while day<=end:
-            for source in sources:
-                host=source["host"]
-                try:
-                    process(pg,source,day,args.dry_run)
-                except Exception as exc:
-                    failed+=1
-                    LOG.exception("%s %s | Falha. Dados anteriores preservados.",host,day)
-                    if pg is not None:
-                        try:
-                            log_run(pg,host,day,"FAILED",message=str(exc))
-                        except Exception:
-                            LOG.exception("Não foi possível persistir o log de erro.")
-            day+=timedelta(days=1)
+        for source in sources:
+            host = source["host"]
+            try:
+                process_period(pg, source, start, end, args.dry_run)
+            except Exception as exc:
+                failed += 1
+                LOG.exception("%s %s a %s | Falha. Dados anteriores preservados.", host, start, end)
+                if pg is not None:
+                    try:
+                        log_run(pg, host, start, "FAILED",
+                                message=f"Período {start} a {end}: {exc}")
+                    except Exception:
+                        LOG.exception("Não foi possível persistir o log de erro.")
     finally:
         if pg is not None:
             pg.close()
