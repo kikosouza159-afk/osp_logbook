@@ -147,12 +147,14 @@ def extract_calls(cursor, day: date, table: str) -> list[dict]:
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def fetch_mailing(cursor, day: date, campaign_ids: list[int]) -> dict[int, tuple[int, date]]:
+def fetch_mailing(cursor, day: date, campaign_ids: list[int], report_table: str = LINKED_REPORT) -> dict[int, tuple[int, date]]:
     """Última carga por campanha até a data; deduplica arquivos da mesma família.
 
     O original particionava por data e filename apenas. Acrescentar CampaignId
     evita misturar importações homônimas de campanhas diferentes.
     """
+    if report_table not in (LINKED_REPORT, "ImportExportControl.dbo.ReportImport"):
+        raise ValueError("Origem de Mailing fora da lista permitida.")
     if not campaign_ids:
         return {}
     unique_ids = sorted(set(int(i) for i in campaign_ids))
@@ -172,7 +174,7 @@ def fetch_mailing(cursor, day: date, campaign_ids: list[int]) -> dict[int, tuple
                 LEFT(RI.FileName,LEN(RI.FileName)-CHARINDEX('_',REVERSE(RI.FileName)))
               ORDER BY RI.DateProccess DESC
             ) AS RN
-          FROM {LINKED_REPORT} RI WITH(NOLOCK)
+          FROM {report_table} RI WITH(NOLOCK)
           WHERE RI.ImportStatusId=3 AND RI.CampaignId IN ({placeholders})
             AND RI.DateProccess < DATEADD(day,1,CONVERT(date,?))
         ), MailingDia AS (
@@ -243,12 +245,25 @@ def process(pg, source: dict, day: date, dry_run: bool):
                 log_run(pg, host, day, "EMPTY", message="Consulta sem linhas; sem exclusões.")
             return "EMPTY", 0
         mailing_warning = ""
+        ids = [r["CampaignId"] for r in rows]
         try:
-            mailings = fetch_mailing(cur, day, [r["CampaignId"] for r in rows])
-        except Exception as exc:
-            mailings = {}
-            mailing_warning = "ReportImport indisponível, Mailing gravado como NULL"
-            LOG.warning("%s %s | %s: %s", host, day, mailing_warning, type(exc).__name__)
+            mailings = fetch_mailing(cur, day, ids)
+        except Exception as first_exc:
+            # Nem todo SQL Server tem o linked server OLOSMEFFLADTB01 configurado.
+            # Fallback: consultar o servidor de Import diretamente, se acessível.
+            LOG.warning("%s %s | Linked server indisponível (%s); tentando conexão direta ao Mailing.",
+                        host, day, type(first_exc).__name__)
+            mail_cn = None
+            try:
+                mail_cn = sql_connection(os.getenv("MAILING_SQL_HOST", "OLOSMEFFLADTB01"))
+                mailings = fetch_mailing(mail_cn.cursor(),day,ids,"ImportExportControl.dbo.ReportImport")
+            except Exception as second_exc:
+                mailings = {}
+                mailing_warning = "ReportImport inacessível; Mailing NULL"
+                LOG.warning("%s %s | %s (%s)",host,day,mailing_warning,type(second_exc).__name__)
+            finally:
+                if mail_cn is not None:
+                    mail_cn.close()
         values = []
         missing = 0
         for r in rows:
