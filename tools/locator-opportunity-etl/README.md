@@ -32,14 +32,15 @@ EXECUTAR_ETL.bat --host 10.195.124.1 --days 1
 
 ## Modelo operacional
 
-- Origem: `ExportDataV3.dbo.AttemptsRawData_YYYY_MM_DD`; no dia corrente, tenta `AttemptsRawData`.
+- Origem: `ExportDataV3.dbo.AttemptsRawData_YYYY_MM_DD`; no dia corrente usa `AttemptsRawData`. **Executa uma única consulta consolidada por servidor e período** (`sql/consulta_consolidada.sql`), com `@DataInicio` e `@DataFim` inclusivos, incluindo o loop das partições, `OPTION (MAXDOP 2, RECOMPILE)` e agrupamento preliminar por `CampaignId, AgentId`.
 - Dimensões: `@@SERVERNAME`, Data, `CampaignId`, descrição de `SysConfiguration.dbo.Campaign`, `VirtualAgentTypeId`.
-- Logados: `COUNT(DISTINCT CASE WHEN AgentId>0 THEN AgentId END)`.
-- Tentativas: `COUNT_BIG(*)`.
-- **Atendidas: SUM(CASE WHEN AgentId>0 THEN 1 ELSE 0 END)**, exatamente o critério da consulta de referência. Não equivale necessariamente a todas as chamadas atendidas por voz.
-- Mailing: em `OLOSMEFFLADTB01.ImportExportControl.dbo.ReportImport`, apenas `ImportStatusId=3`, elimina reimportações da mesma família de arquivo e campanha, soma `TotalRecordsImported` e vincula a última data de importação **menor ou igual à data de operação** (as-of).
+- Logados: soma de uma unidade por `AgentId > 0` após o agrupamento por agente, equivalente à quantidade de agentes distintos no dia.
+- Tentativas: soma do `COUNT_BIG(*)` agrupado por agente.
+- **Atendidas: soma das tentativas do grupo com `AgentId > 0`**, exatamente a regra da consulta nova. Não equivale necessariamente a todas as chamadas atendidas por voz.
+- Mailing: consulta **diretamente `ImportExportControl.dbo.ReportImport` no servidor SQL de origem** (sem linked server), apenas `ImportStatusId=3`, elimina reimportações da mesma família de arquivo e campanha, soma `TotalRecordsImported` e aplica a última importação **menor ou igual à data de operação** (as-of).
 - Como salvaguarda, a deduplicação do Mailing inclui também `CampaignId` na chave para não fundir campanhas com mesmo nome-base de arquivo.
 - Servidores compartilhados **não são duplicados**: existe uma consulta por host. Um `depara_campanhas_painel` define o cliente quando disponível; Energisa 345 = SDR, demais campanhas = Cobrança. Em casos ambíguos, a campanha é marcada `UNRESOLVED`; a tela permite exibi-la por filtro, mas não a mistura por padrão com o ranking confirmado.
+- A consulta devolve **dois result sets**: o consolidado diário e a lista de `#TABELAS_AUSENTES`. O ETL registra `SKIPPED` por data de partição ausente, sem zerar as tabelas no Neon.
 - Status: `SUCCESS`, `PARTIAL` (Mailing nulo), `EMPTY`, `SKIPPED` (partição ausente), `FAILED`. O histórico é preservado em casos de falha ou consulta vazia.
 - **Não há DELETE no ETL**. Existe apenas UPSERT da partição que foi extraída com sucesso; executar novamente não duplica registros.
 - O ETL não abre conexão do navegador com SQL Server; a API do painel lê somente o PostgreSQL, com sessão de ADMIN.
@@ -81,4 +82,8 @@ FROM osp_locator_opportunity_daily
 ORDER BY data DESC LIMIT 30;
 ```
 
-Se o `ReportImport` não estiver disponível pelo linked server nos hosts, conferir linked server e permissões (ou adaptar a origem com a equipe de dados). Não substitua Mailing ausente por zero.
+**Atenção ao banco de Mailing:** a consulta nova utiliza `ImportExportControl.dbo.ReportImport` em cada servidor configurado. É obrigatório que o banco exista e a credencial tenha permissão de leitura; caso contrário, a extração do servidor falha e a carga anterior é preservada. Não substitua Mailing ausente por zero. No `.env`, `SQL_QUERY_TIMEOUT=1800` (segundos) é o timeout padrão recomendado para períodos longos.
+
+**SQL original adaptado:** `sql/consulta_consolidada.sql` reproduz a consulta recebida e acrescenta apenas os campos `VirtualAgentTypeId` e `MailingData`, necessários ao painel e à auditoria da origem do mailing.
+
+**Execução por período:** um comando `--start/--end` extrai todo o intervalo por host, incluindo a lista de partições ausentes. Um erro em um host não impede consultar os demais; o comando termina com código de erro se alguma origem falhar. A carga continua idempotente no Neon.
