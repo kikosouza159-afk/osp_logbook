@@ -1,0 +1,35 @@
+name: Verificar Oportunidades Locator
+on:
+  pull_request:
+    paths:
+      - 'src/components/locator-opportunities*'
+      - 'src/app/(protected)/oportunidades/**'
+      - 'src/app/api/oportunidades/**'
+      - 'tools/locator-opportunity-etl/**'
+      - 'db/migrations/0028_locator_opportunity_daily.sql'
+      - '.github/workflows/verify-locator.yml'
+jobs:
+  python-etl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verificar sintaxe Python
+        run: python -m py_compile tools/locator-opportunity-etl/etl_locator.py
+      - name: Testes do ETL sem rede
+        run: python -m unittest discover -s tools/locator-opportunity-etl/tests -p 'test_*.py' -v
+  nextjs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+        env:
+          DATABASE_URL: postgresql://unused:unused@localhost:5432/unused
+          SESSION_SECRET: local-ci-only-secret-1234567890
