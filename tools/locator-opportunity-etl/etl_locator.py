@@ -114,7 +114,7 @@ def sql_connection(host: str):
 
 def source_table(cursor, day: date) -> str | None:
     suffix = day.strftime("%Y_%m_%d")
-    choices = (["AttemptsRawData"] if day == date.today() else []) + [
+    choices = (["AttemptsRawData"] if day == datetime.now(ZoneInfo("America/Sao_Paulo")).date() else []) + [
         "AttemptsRawData_" + suffix
     ]
     for table in choices:
@@ -227,7 +227,8 @@ def log_run(pg, host: str, day: date, status: str, count=0, message=""):
 
 def process(pg, source: dict, day: date, dry_run: bool):
     host = source["host"]
-    with sql_connection(host) as sql_cn:
+    sql_cn = sql_connection(host)
+    try:
         cur = sql_cn.cursor()
         table = source_table(cur, day)
         if table is None:
@@ -278,6 +279,8 @@ def process(pg, source: dict, day: date, dry_run: bool):
                 """, (host,day,status,len(values),
                       f"{missing} campanhas sem Mailing. {mailing_warning}"))
         return status, len(values)
+    finally:
+        sql_cn.close()
 
 
 def run():
@@ -298,7 +301,7 @@ def run():
     start = date.fromisoformat(args.start) if args.start else end-timedelta(days=args.days-1)
     if start>end or (end-start).days>365 or end>today:
         parser.error("Período inválido. Limite: 366 dias, sem datas futuras.")
-    sources=get_sources(Path(args.servers))
+    sources=get_sources(Path(args.servers or str(BASE/"servidores.json")))
     if args.host:
         sources=[s for s in sources if s["host"]==args.host]
         if not sources:
