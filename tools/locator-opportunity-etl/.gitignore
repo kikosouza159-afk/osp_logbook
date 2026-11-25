@@ -1,0 +1,5 @@
+.env
+servidores.json
+*.log
+__pycache__/
+.venv/
