@@ -11,6 +11,30 @@ spec.loader.exec_module(etl)
 
 
 class LocatorEtlTests(unittest.TestCase):
+    def test_odbc_auto_prefers_17(self):
+        self.assertEqual(etl.select_odbc_driver(["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"]), "ODBC Driver 17 for SQL Server")
+
+    def test_odbc_explicit_installed_is_respected(self):
+        self.assertEqual(etl.select_odbc_driver(["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"], "ODBC Driver 18 for SQL Server"), "ODBC Driver 18 for SQL Server")
+
+    def test_odbc_stale_config_falls_back(self):
+        self.assertEqual(etl.select_odbc_driver(["ODBC Driver 17 for SQL Server"], "ODBC Driver 18 for SQL Server"), "ODBC Driver 17 for SQL Server")
+        self.assertEqual(etl.select_odbc_driver(["ODBC Driver 18 for SQL Server"], "auto"), "ODBC Driver 18 for SQL Server")
+
+    def test_odbc_missing_fails_before_database(self):
+        from unittest.mock import patch
+        with self.assertRaisesRegex(RuntimeError, "Nenhum ODBC Driver"):
+            etl.select_odbc_driver(["SQL Server"])
+        with patch.object(etl, "env_load"), patch.object(etl, "preflight_odbc", side_effect=RuntimeError("sem driver")), patch.object(etl, "pg_connection") as pg, patch.object(etl.sys, "argv", ["etl_locator.py"]):
+            self.assertEqual(etl.run(), 1)
+            pg.assert_not_called()
+
+    def test_check_driver_no_database(self):
+        from unittest.mock import patch
+        with patch.object(etl, "env_load"), patch.object(etl, "preflight_odbc", return_value="ODBC Driver 17 for SQL Server"), patch.object(etl, "pg_connection") as pg, patch.object(etl.sys, "argv", ["etl_locator.py", "--check-driver"]):
+            self.assertEqual(etl.run(), 0)
+            pg.assert_not_called()
+
     def test_campaign_depara_prevents_shared_client_misassignment(self):
         source = {
             "host": "10.0.0.1", "client": "FastFlow",
