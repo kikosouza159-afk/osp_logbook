@@ -27,6 +27,15 @@ function CommercialCardValue({total,commercial,unknown}:{total:number;commercial
   </span>;
 }
 
+function CommercialMetric({label,value,note,ratio}:{label:string;value:string;note:string;ratio?:number}){
+  return <span className="fi-card-commercial fi-commercial-metric" title="Indicador calculado somente sobre os registros desde o início comercial informado.">
+    <span className="fi-card-commercial-label">{label}</span>
+    <span className="fi-card-commercial-line"><b>{value}</b>{ratio!==undefined&&<small>{percent(ratio)}</small>}</span>
+    {ratio!==undefined&&<span className="fi-card-commercial-track" aria-hidden="true"><span style={{width:Math.min(100,Math.max(0,ratio))+"%"}}/></span>}
+    <span className="fi-card-commercial-gap">{note}</span>
+  </span>;
+}
+
 export function FinancialCenter(){
   const [snapshot,setSnapshot]=useState<FinancialSnapshot>({rows:[],updatedAt:null});
   const [view,setView]=useState<"overview"|"config">("overview");
@@ -83,6 +92,10 @@ export function FinancialCenter(){
   if(showStarts)for(const k of startGroups.keys())if(!series.some(r=>r.label===k))series.push({label:k,items:[],...sum([])});
   series.sort((a,b)=>a.label.localeCompare(b.label));
   const phase=phaseTotals(filtered);
+  const commercialRows=filtered.filter(r=>billingPhase(r)==="after");
+  const commercialTotals=sum(commercialRows);
+  const commercialClients=new Set(commercialRows.filter(r=>r.cost>0).map(r=>r.client)).size;
+  const commercialCampaigns=new Set(commercialRows.map(r=>JSON.stringify([r.client,r.server,r.campaignId,r.agent]))).size;
   const hovered=series.find(r=>r.label===hover?.label);
   const hoverPhase=hovered?phaseTotals(hovered.items):null;
   const hoverHasClassified=hovered?.items.some(r=>billingPhase(r)!=="unknown")??false;
@@ -153,7 +166,7 @@ export function FinancialCenter(){
       <div className="fi-products">{productOptions.map(a=>{const rows=a?productRows.filter(r=>r.agent===a):productRows;const t=sum(rows),commercial=phaseTotals(rows);const Icon=a==="4"?Headphones:a==="5"?Bot:LayoutGrid;return <button key={a||"all"} type="button" aria-pressed={agent===a} className={"fi-product "+(a==="5"?"fi-product-ada":a==="4"?"fi-product-locator":"fi-product-all")+(agent===a?" is-active":"")} onClick={()=>{setAgent(a);setHover(null);setPage(0);setDetail("");}}><div className="fi-product-top"><span className="fi-product-icon"><Icon size={22}/></span><span className="fi-product-name">{a?agentLabel(a):"Todos"}<small>{a?"Tipo "+a:"Visão consolidada"}</small></span><span className="fi-product-check">{agent===a?<Check size={15}/>:null}</span></div><span className="fi-card-total-label">Valor tarifado total</span><strong>{money(t.cost)}</strong><CommercialCardValue total={t.cost} commercial={commercial.after} unknown={commercial.unknown}/><div className="fi-product-bottom"><span>{integer(t.calls)} chamadas</span><b>{percent(share(t.cost,productTotal))}</b></div><div className="fi-product-track"><i style={{width:Math.min(100,Math.max(0,share(t.cost,productTotal)))+"%"}}/></div></button>;})}</div>
     </section>
     {start&&end&&start>end&&<div className="fi-error">A data inicial deve ser anterior ou igual à final.</div>}
-    <div className="fi-kpis">{kpis.map(({label,value,Icon,note})=><article className="card fi-kpi" key={label}><div><span>{label==="Custo tarifado"?"Valor tarifado total":label}</span><i><Icon size={18}/></i></div><strong>{value}</strong>{label==="Custo tarifado"&&<CommercialCardValue total={totals.cost} commercial={phase.after} unknown={phase.unknown}/>}<small>{note}</small></article>)}</div>
+    <div className="fi-kpis">{kpis.map(({label,value,Icon,note})=><article className="card fi-kpi" key={label}><div><span>{label==="Custo tarifado"?"Valor tarifado total":label}</span><i><Icon size={18}/></i></div><strong>{value}</strong>{label==="Custo tarifado"?<CommercialCardValue total={totals.cost} commercial={phase.after} unknown={phase.unknown}/>:label==="Chamadas tarifadas"?<CommercialMetric label="Chamadas faturadas" value={integer(commercialTotals.calls)} ratio={share(commercialTotals.calls,totals.calls)} note="Desde o início comercial"/>:label==="Custo por chamada"?<CommercialMetric label="Custo por chamada faturada" value={unit(commercialTotals.unit)} note="Valor comercial ÷ chamadas faturadas"/>:label==="Clientes"?<CommercialMetric label="Clientes faturados" value={integer(commercialClients)} ratio={share(commercialClients,clients.length)} note={commercialCampaigns+" campanhas/produto no período comercial; clientes com valor positivo"}/>:<CommercialMetric label="Média dia faturada" value={commercialTotals.days?money(commercialTotals.cost/commercialTotals.days):"—"} note={integer(commercialTotals.days)+" dias distintos com dados comerciais"}/>}<small>{note}</small></article>)}</div>
     <section ref={chartRef} className="card fi-panel fi-chart"><div className="fi-panel-head"><div><small>01 / EVOLUÇÃO</small><h2>Fluxo financeiro</h2><p>Marcos verdes indicam início comercial informado. Clique no período para consultar campanhas, datas e custos antes/depois.</p></div><div className="fi-actions"><select className="select" aria-label="Métrica do gráfico" value={metric} onChange={e=>setMetric(e.target.value as Metric)}><option value="cost">Custo total</option><option value="calls">Chamadas</option><option value="unit">Custo unitário</option></select>{gran==="day"&&<button className="btn btn-secondary" onClick={()=>{setGran("month");setStart("");setEnd("");setHover(null);}}><ArrowLeft size={14}/>Mensal</button>}<button className="btn btn-secondary" title="Expandir gráfico" aria-label="Expandir gráfico" onClick={()=>{if(document.fullscreenElement)void document.exitFullscreen();else void chartRef.current?.requestFullscreen().catch(()=>{});}}><Maximize2 size={16}/></button></div></div>
     <div className="fi-billing-band"><div><small>Antes do início informado</small><strong>{money(phase.before)}</strong></div><div><small>Desde o início informado</small><strong>{money(phase.after)}</strong></div><label><input type="checkbox" checked={showStarts} onChange={e=>{setShowStarts(e.target.checked);setHover(null);}}/> Mostrar marcos comerciais</label></div>
     <p className="fi-billing-note">Valores tarifados na origem, não confirmação de nota fiscal. Antes do início inclui POC sem aprovação; sem POC não compõe o valor comercial. Marcos são por cliente/produto; filtros de servidor ou campanha ocultam marcos sem escopo validado.</p>
