@@ -6,6 +6,9 @@ on:
       - 'src/app/(protected)/oportunidades/**'
       - 'src/app/api/oportunidades/**'
       - 'tools/locator-opportunity-etl/**'
+      - 'src/components/locator-excel-import.tsx'
+      - 'src/lib/locator-excel.ts'
+      - 'tests/locator-excel.test.mjs'
       - 'db/migrations/0028_locator_opportunity_daily.sql'
       - '.github/workflows/verify-locator.yml'
 jobs:
@@ -28,6 +31,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-audit --no-fund
+      - run: node --experimental-strip-types --test tests/locator-excel.test.mjs
       - run: npm run typecheck
       - run: npm run build
         env:
