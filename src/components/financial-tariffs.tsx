@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Columns3, Download, Minus, Plus, RefreshCw, Search } from "lucide-react";
+import { CalendarDays, ChartNoAxesCombined, Columns3, Download, Maximize2, Minimize2, Minus, Plus, RefreshCw, Search } from "lucide-react";
 import {
   buildTariffLines, formatTariff, monthNames, productName, totalTariffLines,
   type TariffAmount, type TariffMetric, type TariffReport, type TariffLine,
 } from "@/lib/financial-tariffs";
 import { downloadTariffWorkbook, groupTariffClients } from "@/lib/financial-tariff-export";
+import { TariffAnalysis, type AnalysisSelection } from "./financial-tariff-analysis";
 import "./financial-tariffs.css";
 
 const metricLabels = {cost: "Valor tarifado", calls: "Chamadas tarifadas", unit: "Custo por chamada"} as const;
@@ -58,6 +59,8 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
   const [first, setFirst] = useState(report?.year === 2026 ? 4 : 1);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [details, setDetails] = useState(false);
+  const [full, setFull] = useState(false);
+  const [analysis, setAnalysis] = useState<AnalysisSelection | null>(null);
   const [openClients, setOpenClients] = useState<Set<string>>(() => new Set());
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
@@ -66,6 +69,7 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
   const [agent, setAgent] = useState("");
   const [scope, setScope] = useState("");
   const tableRef = useRef<HTMLDivElement>(null);
+
   const year = report?.year ?? 0;
   const lines = useMemo(() => report ? buildTariffLines(report.projects, report.days, year + "-" + pad(first)) : [], [report, year, first]);
   const visible = useMemo(() => {
@@ -92,6 +96,17 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
     const identity = container.querySelector("thead .tariff-identity");
     if (month && identity) container.scrollLeft += month.getBoundingClientRect().left - identity.getBoundingClientRect().right;
   }, [expanded]);
+
+  useEffect(() => {
+    if (!full) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function escape(event: KeyboardEvent) {
+      if (event.key === "Escape" && !document.querySelector(".tariff-analysis[open]")) setFull(false);
+    }
+    window.addEventListener("keydown", escape);
+    return () => {document.body.style.overflow = previous; window.removeEventListener("keydown", escape);};
+  }, [full]);
 
   function collapseDays() {
     const header = tableRef.current?.querySelector<HTMLButtonElement>('thead button[aria-expanded="true"]');
@@ -131,7 +146,7 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
     <p>Não foi possível carregar a tarifação mensal.</p>{refresh}
   </section>;
 
-  return <section className="card tariff-card" aria-labelledby="tariff-heading" aria-busy={pending}>
+  return <section className={"card tariff-card" + (full ? " tariff-card-full" : "")} aria-labelledby="tariff-heading" aria-busy={pending}>
     <header className="tariff-heading">
       <div><h2 id="tariff-heading">Consumo por cliente</h2><p>Expanda o cliente para ver os projetos e o mês para ver os dias.</p></div>
       <div className="tariff-update">{lastDay && <small>Dados até <b>{displayDate(lastDay)}</b></small>}{refresh}</div>
@@ -162,6 +177,13 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
           aria-pressed={metric === key} onClick={() => setMetric(key)}>{metricLabels[key]}</button>)}
       </div>
       <div className="tariff-tools">
+        <button type="button" aria-pressed={full} onClick={() => setFull(!full)}>
+          {full ? <Minimize2 size={15}/> : <Maximize2 size={15}/>}
+          {full ? "Sair da tela cheia" : "Expandir tabela"}
+        </button>
+        <button type="button" disabled={!visible.length} onClick={() => setAnalysis({name:"Total da seleção",lines:visible})}>
+          <ChartNoAxesCombined size={15}/>Análise diária
+        </button>
         <button type="button" disabled={!clients.length || exporting} onClick={exportExcel}>
           <Download size={15} aria-hidden="true"/>{exporting ? "Exportando…" : "Exportar Excel (.xlsm)"}
         </button>
@@ -199,7 +221,7 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
             <AmountCells periods={totals} columns={columns} metric={metric}/>
           </tr>}
           {clients.map(client => <ClientRows key={client.key} client={client} open={openClients.has(client.key)}
-            onToggle={() => toggleClient(client.key)} details={details} columns={columns} metric={metric}/>)}
+            onToggle={() => toggleClient(client.key)} onAnalyze={setAnalysis} details={details} columns={columns} metric={metric}/>)}
           {!visible.length && <tr><td colSpan={width} className="tariff-no-results">
             Nenhum projeto ou origem corresponde à seleção.
           </td></tr>}
@@ -210,20 +232,23 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
       <span aria-live="polite">{clients.length} clientes · {projectCount} {projectCount === 1 ? "projeto" : "projetos"} · {unlinkedCount} {unlinkedCount === 1 ? "origem sem vínculo" : "origens sem vínculo"}</span>
       <span><CalendarDays size={14} aria-hidden="true"/>{metric === "unit" ? "Custo total ÷ chamadas. Traço indica ausência de dados ou de chamadas." : "Traço indica ausência de registro. Zero indica consumo registrado com valor zero."}</span>
     </footer>
+    <TariffAnalysis selection={analysis} campaigns={report.campaigns} year={year} first={first}
+      initialMonth={expanded} onClose={() => setAnalysis(null)}/>
   </section>;
 }
 
-function ClientRows({client, open, onToggle, details, columns, metric}: {
+function ClientRows({client, open, onToggle, onAnalyze, details, columns, metric}: {
   client: ReturnType<typeof groupTariffClients>[number]; open: boolean; onToggle: () => void;
-  details: boolean; columns: PeriodColumn[]; metric: TariffMetric;
+  onAnalyze: (selection: AnalysisSelection) => void; details: boolean; columns: PeriodColumn[]; metric: TariffMetric;
 }) {
   return <>
     <tr className="tariff-client">
       <th scope="row" className="tariff-identity">
-        <button type="button" className="tariff-client-toggle" aria-expanded={open} onClick={onToggle}>
+        <div className="tariff-row-actions"><button type="button" className="tariff-client-toggle" aria-expanded={open} onClick={onToggle}>
           {open ? <Minus size={15}/> : <Plus size={15}/>}
           <span><strong>{client.name}</strong><small>{client.lines.length} {client.lines.length === 1 ? "item" : "itens"}</small></span>
-        </button>
+        </button><button type="button" className="tariff-chart-trigger" title="Análise diária do cliente" aria-label={"Analisar " + client.name}
+          onClick={() => onAnalyze({name:client.name,lines:client.lines})}><ChartNoAxesCombined size={17}/></button></div>
       </th>
       {details && <td colSpan={projectFields.length}/>}
       <AmountCells periods={client.periods} columns={columns} metric={metric}/>
@@ -232,8 +257,10 @@ function ClientRows({client, open, onToggle, details, columns, metric}: {
             const project = line.project;
             return <tr className="tariff-project" key={line.key}>
               <th scope="row" className="tariff-identity">
-                <span className="tariff-code">{project?.code ?? "Sem vínculo"}<span> · {productName(line.agent)}</span></span>
-                <strong>{project?.name ?? line.client}</strong>{project && <small>{line.client}</small>}
+                <div className="tariff-row-actions"><div><span className="tariff-code">{project?.code ?? "Sem vínculo"}<span> · {productName(line.agent)}</span></span>
+                <strong>{project?.name ?? line.client}</strong>{project && <small>{line.client}</small>}</div>
+                  <button type="button" className="tariff-chart-trigger" title="Análise diária do projeto" aria-label={"Analisar " + (project?.name ?? line.client)}
+                    onClick={() => onAnalyze({name:project?.name ?? line.client,lines:[line]})}><ChartNoAxesCombined size={17}/></button></div>
               </th>
               {details && <>
                 <td className="tariff-meta">{project?.condition ?? "—"}</td><td className="tariff-meta">{productName(line.agent)}</td>
