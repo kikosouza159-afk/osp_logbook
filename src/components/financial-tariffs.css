@@ -169,3 +169,10 @@ html[data-theme="dark"] .tariff-card {
   .tariff-table .tariff-identity { width: 40vw; min-width: 40vw; max-width: 40vw; }
   .tariff-table :is(th, td) { padding-inline: .5rem; }
 }
+
+.tariff-table .tariff-client :is(td, th.tariff-identity) { background: var(--matrix-summary); font-weight: 750; }
+.tariff-client-toggle { display: flex; align-items: center; gap: .6rem; text-align: left; width: 100%; border: 0; padding: .1rem 0; background: transparent; color: var(--matrix-ink); cursor: pointer; }
+.tariff-client-toggle svg { flex: none; color: var(--matrix-accent); border: 1px solid currentColor; border-radius: 4px; padding: 1px; }
+.tariff-table .tariff-project .tariff-identity { padding-left: 2.35rem; }
+.tariff-export-error { color: var(--matrix-accent); padding: .5rem 1.5rem; }
+.tariff-tools button:disabled { opacity: .55; cursor: not-allowed; }
