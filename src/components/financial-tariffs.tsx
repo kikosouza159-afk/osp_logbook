@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { CalendarDays, ChartNoAxesCombined, Columns3, Download, Maximize2, Minimize2, Minus, Plus, RefreshCw, Search } from "lucide-react";
 import {
-  buildTariffLines, formatTariff, monthNames, productName, totalTariffLines,
+  buildTariffCampaignLines, formatTariff, monthNames, productName, totalTariffLines,
   type TariffAmount, type TariffMetric, type TariffReport, type TariffLine,
 } from "@/lib/financial-tariffs";
 import { downloadTariffWorkbook, groupTariffClients } from "@/lib/financial-tariff-export";
@@ -75,13 +75,13 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
   const scrollPosition = useRef<{left:number;top:number} | null>(null);
 
   const year = report?.year ?? 0;
-  const lines = useMemo(() => report ? buildTariffLines(report.projects, report.days, year + "-" + pad(first)) : [], [report, year, first]);
+  const lines = useMemo(() => report ? buildTariffCampaignLines(report.projects, report.campaigns, year + "-" + pad(first)) : [], [report, year, first]);
   const visible = useMemo(() => {
     const term = searchKey(search);
     return lines.filter(line => {
       if ((agent && line.agent !== agent) || (scope === "projects" && !line.project) || (scope === "unlinked" && line.project)) return false;
       const project = line.project;
-      return !term || searchKey([line.client, project?.code, project?.name, project?.owner, project?.status].join(" ")).includes(term);
+      return !term || searchKey([line.client, line.campaign?.id, line.campaign?.name, line.campaign?.server, productName(line.agent), project?.code, project?.name, project?.owner, project?.status].join(" ")).includes(term);
     });
   }, [lines, search, agent, scope]);
   const totals = useMemo(() => totalTariffLines(visible), [visible]);
@@ -89,8 +89,7 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
   const columns = useMemo(() => periodColumns(year, first, expanded), [year, first, expanded]);
   const products = useMemo(() => [...new Set(lines.map(line => line.agent))].sort(), [lines]);
   const lastDay = useMemo(() => report?.days.reduce((latest, row) => row.date > latest ? row.date : latest, ""), [report]);
-  const projectCount = visible.filter(line => line.project).length;
-  const unlinkedCount = visible.length - projectCount;
+  const unlinkedCount = visible.filter(line => !line.project).length;
   const width = 2 + columns.length + (details ? projectFields.length : 0);
 
   useEffect(() => {
@@ -163,14 +162,14 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
 
   const content = <section className={"card tariff-card" + (full ? " tariff-card-full" : "")} aria-labelledby="tariff-heading" aria-busy={pending}>
     <header className="tariff-heading">
-      <div><h2 id="tariff-heading">Consumo por cliente</h2><p>Expanda o cliente para ver os projetos e o mês para ver os dias.</p></div>
+      <div><h2 id="tariff-heading">Consumo por cliente</h2><p>Expanda o cliente para ver as campanhas e o mês para ver os dias.</p></div>
       <div className="tariff-update">{lastDay && <small>Dados até <b>{displayDate(lastDay)}</b></small>}{refresh}</div>
     </header>
 
     <div className="tariff-filters">
-      <label className="tariff-find">Buscar projeto ou cliente<span>
+      <label className="tariff-find">Buscar cliente ou campanha<span>
         <Search size={16} aria-hidden="true"/><input className="input" type="search" value={search}
-          placeholder="Nome ou ID do projeto" onChange={event => setSearch(event.target.value)}/></span></label>
+          placeholder="Nome ou ID da campanha" onChange={event => setSearch(event.target.value)}/></span></label>
       <label>Ano<select aria-label="Ano" className="select" value={year} disabled={pending} onChange={event => {
         const selected = event.target.value;
         startTransition(() => router.replace("/financeiro/tarifacao?ano=" + selected, {scroll: false}));
@@ -215,9 +214,9 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
     {exportError && <p className="tariff-export-error" role="alert">{exportError}</p>}
     <div className="tariff-scroll" role="region" aria-label="Tabela de tarifação com rolagem horizontal"
       tabIndex={0} ref={tableRef}>
-      <table className="tariff-table" aria-label={metricLabels[metric] + " por cliente, projeto e período, " + year}>
+      <table className="tariff-table" aria-label={metricLabels[metric] + " por cliente, campanha e período, " + year}>
         <thead><tr>
-          <th scope="col" className="tariff-identity">Cliente / Projeto</th>
+          <th scope="col" className="tariff-identity">Cliente / Campanha</th>
           {details && projectFields.map(field => <th scope="col" className="tariff-meta" key={field}>{field}</th>)}
           <th scope="col" className="tariff-number tariff-period-total">Total do período</th>
           {columns.map(col => <th key={col.key} scope="col" className={"tariff-" + col.kind + (expanded === col.key ? " is-open" : "")}>
@@ -238,13 +237,13 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
           {clients.map(client => <ClientRows key={client.key} client={client} open={openClients.has(client.key)}
             onToggle={() => toggleClient(client.key)} onAnalyze={setAnalysis} details={details} columns={columns} metric={metric}/>)}
           {!visible.length && <tr><td colSpan={width} className="tariff-no-results">
-            Nenhum projeto ou origem corresponde à seleção.
+            Nenhuma campanha corresponde à seleção.
           </td></tr>}
         </tbody>
       </table>
     </div>
     <footer className="tariff-footer">
-      <span aria-live="polite">{clients.length} clientes · {projectCount} {projectCount === 1 ? "projeto" : "projetos"} · {unlinkedCount} {unlinkedCount === 1 ? "origem sem vínculo" : "origens sem vínculo"}</span>
+      <span aria-live="polite">{clients.length} clientes · {visible.length} {visible.length === 1 ? "campanha" : "campanhas"} · {unlinkedCount} sem vínculo de projeto</span>
       <span><CalendarDays size={14} aria-hidden="true"/>{metric === "unit" ? "Custo total ÷ chamadas. Traço indica ausência de dados ou de chamadas." : "Traço indica ausência de registro. Zero indica consumo registrado com valor zero."}</span>
     </footer>
     <TariffAnalysis selection={analysis} campaigns={report.campaigns} year={year} first={first}
@@ -268,7 +267,7 @@ function ClientRows({client, open, onToggle, onAnalyze, details, columns, metric
       <th scope="row" className="tariff-identity">
         <div className="tariff-row-actions"><button type="button" className="tariff-client-toggle" aria-expanded={open} onClick={onToggle}>
           {open ? <Minus size={15}/> : <Plus size={15}/>}
-          <span><strong>{client.name}</strong><small>{client.lines.length} {client.lines.length === 1 ? "item" : "itens"}</small></span>
+          <span><strong>{client.name}</strong><small>{client.lines.length} {client.lines.length === 1 ? "campanha" : "campanhas"}</small></span>
         </button><button type="button" className="tariff-chart-trigger" title="Análise diária do cliente" aria-label={"Analisar " + client.name}
           onClick={() => onAnalyze({name:client.name,lines:client.lines})}><ChartNoAxesCombined size={17}/></button></div>
       </th>
@@ -279,10 +278,10 @@ function ClientRows({client, open, onToggle, onAnalyze, details, columns, metric
             const project = line.project;
             return <tr className="tariff-project" key={line.key}>
               <th scope="row" className="tariff-identity">
-                <div className="tariff-row-actions"><div><span className="tariff-code">{project?.code ?? "Sem vínculo"}<span> · {productName(line.agent)}</span></span>
-                <strong>{project?.name ?? line.client}</strong>{project && <small>{line.client}</small>}</div>
-                  <button type="button" className="tariff-chart-trigger" title="Análise diária do projeto" aria-label={"Analisar " + (project?.name ?? line.client)}
-                    onClick={() => onAnalyze({name:project?.name ?? line.client,lines:[line]})}><ChartNoAxesCombined size={17}/></button></div>
+                <div className="tariff-row-actions"><div><span className="tariff-code">{line.campaign?.id ?? "Sem ID"}<span> · {productName(line.agent)}</span></span>
+                <strong>{line.campaign?.name || "Campanha sem nome"}</strong><small>{line.campaign?.server}{project ? " · "+project.code : ""}</small></div>
+                  <button type="button" className="tariff-chart-trigger" title="Análise diária da campanha" aria-label={"Analisar " + (line.campaign?.name ?? line.client)}
+                    onClick={() => onAnalyze({name:line.campaign?.name ?? line.client,lines:[line]})}><ChartNoAxesCombined size={17}/></button></div>
               </th>
               {details && <>
                 <td className="tariff-meta">{project?.condition ?? "—"}</td><td className="tariff-meta">{productName(line.agent)}</td>
