@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { CalendarDays, ChartNoAxesCombined, Columns3, Download, Maximize2, Minimize2, Minus, Plus, RefreshCw, Search } from "lucide-react";
 import {
   buildTariffLines, formatTariff, monthNames, productName, totalTariffLines,
@@ -69,6 +70,9 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
   const [agent, setAgent] = useState("");
   const [scope, setScope] = useState("");
   const tableRef = useRef<HTMLDivElement>(null);
+  const fullscreenRef = useRef<HTMLDialogElement>(null);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const scrollPosition = useRef<{left:number;top:number} | null>(null);
 
   const year = report?.year ?? 0;
   const lines = useMemo(() => report ? buildTariffLines(report.projects, report.days, year + "-" + pad(first)) : [], [report, year, first]);
@@ -98,15 +102,26 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
   }, [expanded]);
 
   useEffect(() => {
+    const modal = fullscreenRef.current;
+    if (full && modal && !modal.open) modal.showModal();
+    const saved = scrollPosition.current;
+    if (saved && tableRef.current) {
+      tableRef.current.scrollLeft = saved.left;
+      tableRef.current.scrollTop = saved.top;
+      scrollPosition.current = null;
+      expandButtonRef.current?.focus({preventScroll:true});
+    }
     if (!full) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    function escape(event: KeyboardEvent) {
-      if (event.key === "Escape" && !document.querySelector(".tariff-analysis[open]")) setFull(false);
-    }
-    window.addEventListener("keydown", escape);
-    return () => {document.body.style.overflow = previous; window.removeEventListener("keydown", escape);};
+    return () => {document.body.style.overflow = previous;};
   }, [full]);
+
+  function toggleFullscreen() {
+    const table = tableRef.current;
+    if (table) scrollPosition.current = {left:table.scrollLeft,top:table.scrollTop};
+    setFull(value => !value);
+  }
 
   function collapseDays() {
     const header = tableRef.current?.querySelector<HTMLButtonElement>('thead button[aria-expanded="true"]');
@@ -146,7 +161,7 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
     <p>Não foi possível carregar a tarifação mensal.</p>{refresh}
   </section>;
 
-  return <section className={"card tariff-card" + (full ? " tariff-card-full" : "")} aria-labelledby="tariff-heading" aria-busy={pending}>
+  const content = <section className={"card tariff-card" + (full ? " tariff-card-full" : "")} aria-labelledby="tariff-heading" aria-busy={pending}>
     <header className="tariff-heading">
       <div><h2 id="tariff-heading">Consumo por cliente</h2><p>Expanda o cliente para ver os projetos e o mês para ver os dias.</p></div>
       <div className="tariff-update">{lastDay && <small>Dados até <b>{displayDate(lastDay)}</b></small>}{refresh}</div>
@@ -177,7 +192,7 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
           aria-pressed={metric === key} onClick={() => setMetric(key)}>{metricLabels[key]}</button>)}
       </div>
       <div className="tariff-tools">
-        <button type="button" aria-pressed={full} onClick={() => setFull(!full)}>
+        <button ref={expandButtonRef} type="button" aria-pressed={full} onClick={toggleFullscreen}>
           {full ? <Minimize2 size={15}/> : <Maximize2 size={15}/>}
           {full ? "Sair da tela cheia" : "Expandir tabela"}
         </button>
@@ -235,6 +250,13 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
     <TariffAnalysis selection={analysis} campaigns={report.campaigns} year={year} first={first}
       initialMonth={expanded} onClose={() => setAnalysis(null)}/>
   </section>;
+
+  return full ? createPortal(<dialog ref={fullscreenRef} className="fi tariff-full-dialog"
+    aria-labelledby="tariff-heading" onCancel={event => {
+      if (event.target !== event.currentTarget) return;
+      event.preventDefault();
+      toggleFullscreen();
+    }}>{content}</dialog>, document.body) : content;
 }
 
 function ClientRows({client, open, onToggle, onAnalyze, details, columns, metric}: {
