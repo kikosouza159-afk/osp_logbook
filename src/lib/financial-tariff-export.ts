@@ -58,7 +58,7 @@ export async function createTariffWorkbook(options: Options) {
   const header = metric === "cost" ? "Valor tarifado (R$)" : metric === "calls" ? "Chamadas tarifadas" : "Custo por chamada (R$)";
   const styleOffset = metric === "cost" ? 0 : metric === "calls" ? 1 : 2;
   const rows: string[] = [];
-  rows.push('<row r="1">' + cell(1,1,"Cliente / Projeto | " + header,1) + periods.map((p,i)=>cell(i+2,1,p.title,1)).join("") + '</row>');
+  rows.push('<row r="1">' + cell(1,1,"Cliente / Campanha | " + header,1) + periods.map((p,i)=>cell(i+2,1,p.title,1)).join("") + '</row>');
   function add(label: string, amounts: Map<string, TariffAmount>, summary: boolean, level = 0, hidden = false, collapsed = false) {
     const n = rows.length + 1;
     rows.push('<row r="' + n + '"' + (level ? ' outlineLevel="1"' : "") + (hidden ? ' hidden="1"' : "") + (collapsed ? ' collapsed="1"' : "") + '>' +
@@ -68,7 +68,7 @@ export async function createTariffWorkbook(options: Options) {
   for (const client of clients) {
     const open = openClients.has(client.key);
     add(client.name,client.periods,true,0,false,!open);
-    for (const line of client.lines) add("    " + (line.project ? line.project.code + " | " + line.project.name : "Sem vínculo") + " | " + productName(line.agent),line.periods,false,1,!open);
+    for (const line of client.lines) add("    " + (line.campaign ? line.campaign.id + " | " + line.campaign.name + " | " + line.campaign.server : "Campanha sem identificação") + " | " + productName(line.agent),line.periods,false,1,!open);
   }
   const cols = '<col min="1" max="1" width="48" customWidth="1"/>' + periods.map((p,i) => '<col min="' + (i+2) + '" max="' + (i+2) + '" width="' + (p.day ? 15 : 19) + '" customWidth="1"' + (p.day ? ' outlineLevel="1"' : "") + (p.hidden ? ' hidden="1"' : "") + (p.collapsed ? ' collapsed="1"' : "") + '/>').join("");
   zip.file("[Content_Types].xml",xml('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.ms-excel.sheet.macroEnabled.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'));

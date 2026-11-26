@@ -26,6 +26,7 @@ export type TariffAmount = { cost: bigint; calls: bigint };
 export type TariffLine = {
   key: string;
   project?: TariffProject;
+  campaign?: {id: string; name: string; server: string};
   client: string;
   agent: string;
   periods: Map<string, TariffAmount>;
@@ -87,6 +88,40 @@ export function buildTariffLines(projects: TariffProject[], days: TariffDay[], f
   return [...lines.values()].sort((a, b) =>
     Number(!a.project) - Number(!b.project) || a.client.localeCompare(b.client, "pt-BR") ||
     a.key.localeCompare(b.key, "pt-BR"));
+}
+
+// Include the source assignment, server and product so reused campaign IDs never collide.
+export function tariffCampaignKey(day: TariffCampaignDay) {
+  return JSON.stringify([day.code ?? [day.unlinkedClient, day.agent],day.server,day.campaignId,day.agent]);
+}
+
+export function buildTariffCampaignLines(projects: TariffProject[], days: TariffCampaignDay[], firstMonth: string) {
+  const catalog = new Map(projects.map(p=>[p.code,p]));
+  const lines = new Map<string,TariffLine>();
+  const latest = new Map<string,string>();
+  for (const day of days) {
+    const month = day.date.slice(0,7);
+    if (month < firstMonth) continue;
+    const key = tariffCampaignKey(day);
+    let line = lines.get(key);
+    if (!line) {
+      const project = day.code ? catalog.get(day.code) : undefined;
+      line = {key,project,client:project?.client ?? day.unlinkedClient ?? "Origem sem identificação",
+        agent:day.agent,campaign:{id:day.campaignId,name:day.campaignName,server:day.server},periods:new Map()};
+      lines.set(key,line);
+    }
+    if (day.date >= (latest.get(key) ?? "")) {
+      line.campaign = {id:day.campaignId,name:day.campaignName,server:day.server};
+      latest.set(key,day.date);
+    }
+    const value = {cost:BigInt(day.costUnits),calls:BigInt(day.calls)};
+    accumulate(line.periods,day.date,value);
+    accumulate(line.periods,month,value);
+    accumulate(line.periods,"total",value);
+  }
+  return [...lines.values()].sort((a,b)=>a.client.localeCompare(b.client,"pt-BR") ||
+    a.agent.localeCompare(b.agent) || (a.campaign?.id ?? "").localeCompare(b.campaign?.id ?? "","pt-BR",{numeric:true}) ||
+    a.key.localeCompare(b.key));
 }
 
 export function totalTariffLines(lines: TariffLine[]) {

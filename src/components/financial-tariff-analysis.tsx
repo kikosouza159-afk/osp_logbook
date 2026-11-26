@@ -2,11 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { formatTariff, monthNames, type TariffAmount, type TariffCampaignDay, type TariffLine } from "@/lib/financial-tariffs";
+import { formatTariff, monthNames, tariffCampaignKey, type TariffAmount, type TariffCampaignDay, type TariffLine } from "@/lib/financial-tariffs";
 
 export type AnalysisSelection = {name: string; lines: TariffLine[]};
 const pad = (n: number) => String(n).padStart(2,"0");
-const keyFor = (r: TariffCampaignDay) => r.code ?? JSON.stringify([r.unlinkedClient,r.agent]);
 const money = (cost: bigint) => formatTariff({cost,calls:0n},"cost");
 function add(a: TariffAmount, r: TariffCampaignDay) { a.cost+=BigInt(r.costUnits); a.calls+=BigInt(r.calls); }
 function blank(): TariffAmount {return {cost:0n,calls:0n};}
@@ -19,7 +18,7 @@ export function TariffAnalysis({selection,campaigns,year,first,initialMonth,onCl
   const [month,setMonth] = useState("");
   const [campaign,setCampaign] = useState("");
   const keys = useMemo(() => new Set(selection?.lines.map(l=>l.key) ?? []),[selection]);
-  const rows = useMemo(() => campaigns.filter(r=>keys.has(keyFor(r)) && r.date>=year+"-"+pad(first)),[campaigns,keys,year,first]);
+  const rows = useMemo(() => campaigns.filter(r=>keys.has(tariffCampaignKey(r)) && r.date>=year+"-"+pad(first)),[campaigns,keys,year,first]);
   const latest = rows.reduce((last,r)=>r.date.slice(0,7)>last?r.date.slice(0,7):last,"");
   useEffect(()=>{
     const el=dialog.current;
