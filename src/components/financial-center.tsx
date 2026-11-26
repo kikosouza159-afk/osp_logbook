@@ -1,8 +1,9 @@
 "use client";
 import { useEffect,useMemo,useState,useRef } from "react";
-import { Wallet,PhoneCall,Coins,Building2,CalendarDays,Download,ArrowLeft,Maximize2,TrendingUp,Layers,RefreshCw,Search,Calculator,Settings,Headphones,Bot,LayoutGrid,Check,X } from "lucide-react";
+import { Wallet,PhoneCall,Coins,Building2,CalendarDays,Download,ArrowLeft,Maximize2,TrendingUp,Layers,RefreshCw,Search,Calculator,Headphones,Bot,LayoutGrid,Check,X } from "lucide-react";
 import { sum,group,money,unit,integer,financialClientName,consolidateFinancialRow,type FinancialRow,type FinancialSnapshot,type BillingStart } from "@/lib/financial";
 import { FinancialConfig } from "./financial-config";
+import { FinancialNavigation } from "./financial-navigation";
 import "./financial-center.css";
 
 type Granularity="month"|"day";
@@ -36,9 +37,8 @@ function CommercialMetric({label,value,note,ratio}:{label:string;value:string;no
   </span>;
 }
 
-export function FinancialCenter(){
+export function FinancialCenter({view}: {view: "overview" | "config"}){
   const [snapshot,setSnapshot]=useState<FinancialSnapshot>({rows:[],updatedAt:null});
-  const [view,setView]=useState<"overview"|"config">("overview");
   const [loading,setLoading]=useState(true),[error,setError]=useState(""),[busy,setBusy]=useState(false);
   const [start,setStart]=useState(""),[end,setEnd]=useState(""),[client,setClient]=useState(""),[agent,setAgent]=useState(""),[server,setServer]=useState(""),[campaign,setCampaign]=useState(""),[environment,setEnvironment]=useState("");
   const [gran,setGran]=useState<Granularity>("month"),[metric,setMetric]=useState<Metric>("cost"),[detail,setDetail]=useState(""),[search,setSearch]=useState(""),[tableMode,setTableMode]=useState("client"),[sort,setSort]=useState<Metric>("cost"),[ascending,setAscending]=useState(false),[page,setPage]=useState(0);
@@ -153,7 +153,7 @@ export function FinancialCenter(){
     <div className="page-head fi-head"><div><small className="fi-eyebrow">GESTÃO / INTELIGÊNCIA FINANCEIRA</small><h1>Financial Intelligence <span>ADA &amp; Locator</span></h1><p>Controle de custos, eficiência tarifária e análise multidimensional.</p></div><div className="fi-actions"><button className="btn btn-secondary" disabled={busy} onClick={()=>void refresh()}><RefreshCw size={16}/>{busy?"Atualizando…":"Atualizar dados"}</button><button className="btn btn-primary" disabled={!table.length} onClick={exportCsv}><Download size={16}/>Exportar CSV</button></div></div>
     <div className="fi-status"><span className="fi-dot"/>{snapshot.updatedAt?"Base atualizada em "+new Date(snapshot.updatedAt).toLocaleString("pt-BR",{timeZone:"America/Sao_Paulo"}):"Aguardando primeira carga ETL"}<span>{integer(all.length)} registros · {dates.length?formatDate(dates[0])+" a "+formatDate(dates[dates.length-1]):"Sem período"}</span></div>
     {error&&<div className="fi-error" role="alert">{error}</div>}
-    <div className="fi-config-nav fi-segment"><button className={view==="overview"?"active":""} onClick={()=>setView("overview")}><Wallet size={15}/>Visão financeira</button><button className={view==="config"?"active":""} onClick={()=>setView("config")}><Settings size={15}/>Configurações de faturamento</button></div>
+    <FinancialNavigation active={view}/>
     {view==="config"?<FinancialConfig onChanged={async()=>{clear();await refresh();}}/>:<>
     {loading?<div className="card panel" aria-busy="true">Carregando base financeira…</div>:!all.length?<div className="card fi-empty"><Wallet size={36}/><h2>Aguardando dados do ETL</h2><p>O painel consulta automaticamente a tabela financeira no Neon. Execute o ETL na rede interna para iniciar a carga.</p><button className="btn btn-primary" onClick={()=>void refresh()} disabled={busy}>Atualizar dados</button></div>:<>
     <section className="card fi-filters">
