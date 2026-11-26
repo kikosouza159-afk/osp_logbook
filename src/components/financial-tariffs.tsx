@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Columns3, Minus, Plus, RefreshCw, Search } from "lucide-react";
+import { CalendarDays, Columns3, Download, Minus, Plus, RefreshCw, Search } from "lucide-react";
 import {
   buildTariffLines, formatTariff, monthNames, productName, totalTariffLines,
-  type TariffAmount, type TariffMetric, type TariffReport,
+  type TariffAmount, type TariffMetric, type TariffReport, type TariffLine,
 } from "@/lib/financial-tariffs";
+import { downloadTariffWorkbook, groupTariffClients } from "@/lib/financial-tariff-export";
 import "./financial-tariffs.css";
 
 const metricLabels = {cost: "Valor tarifado", calls: "Chamadas tarifadas", unit: "Custo por chamada"} as const;
@@ -57,6 +58,9 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
   const [first, setFirst] = useState(report?.year === 2026 ? 4 : 1);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [details, setDetails] = useState(false);
+  const [openClients, setOpenClients] = useState<Set<string>>(() => new Set());
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [metric, setMetric] = useState<TariffMetric>("cost");
   const [search, setSearch] = useState("");
   const [agent, setAgent] = useState("");
@@ -73,6 +77,7 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
     });
   }, [lines, search, agent, scope]);
   const totals = useMemo(() => totalTariffLines(visible), [visible]);
+  const clients = useMemo(() => groupTariffClients(visible), [visible]);
   const columns = useMemo(() => periodColumns(year, first, expanded), [year, first, expanded]);
   const products = useMemo(() => [...new Set(lines.map(line => line.agent))].sort(), [lines]);
   const lastDay = useMemo(() => report?.days.reduce((latest, row) => row.date > latest ? row.date : latest, ""), [report]);
@@ -83,18 +88,38 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
   useEffect(() => {
     const container = tableRef.current;
     if (!expanded || !container) return;
-    const month = container.querySelector('button[aria-expanded="true"]');
+    const month = container.querySelector('thead button[aria-expanded="true"]');
     const identity = container.querySelector("thead .tariff-identity");
     if (month && identity) container.scrollLeft += month.getBoundingClientRect().left - identity.getBoundingClientRect().right;
   }, [expanded]);
 
   function collapseDays() {
-    const header = tableRef.current?.querySelector<HTMLButtonElement>('[aria-expanded="true"]');
+    const header = tableRef.current?.querySelector<HTMLButtonElement>('thead button[aria-expanded="true"]');
     setExpanded(null);
     if (header) requestAnimationFrame(() => {
       header.focus({preventScroll: true});
       header.scrollIntoView({block: "nearest", inline: "center"});
     });
+  }
+
+  function toggleClient(key: string) {
+    setOpenClients(previous => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  async function exportExcel() {
+    setExportError("");
+    setExporting(true);
+    try {
+      await downloadTariffWorkbook({clients, totals, year, first, metric, expanded, openClients});
+    } catch {
+      setExportError("Não foi possível exportar o Excel. Tente novamente.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   const refresh = <button type="button" className="btn btn-secondary" disabled={pending}
@@ -108,7 +133,7 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
 
   return <section className="card tariff-card" aria-labelledby="tariff-heading" aria-busy={pending}>
     <header className="tariff-heading">
-      <div><h2 id="tariff-heading">Consumo por projeto</h2><p>Clique no mês para abrir ou recolher as colunas diárias.</p></div>
+      <div><h2 id="tariff-heading">Consumo por cliente</h2><p>Expanda o cliente para ver os projetos e o mês para ver os dias.</p></div>
       <div className="tariff-update">{lastDay && <small>Dados até <b>{displayDate(lastDay)}</b></small>}{refresh}</div>
     </header>
 
@@ -137,6 +162,12 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
           aria-pressed={metric === key} onClick={() => setMetric(key)}>{metricLabels[key]}</button>)}
       </div>
       <div className="tariff-tools">
+        <button type="button" disabled={!clients.length || exporting} onClick={exportExcel}>
+          <Download size={15} aria-hidden="true"/>{exporting ? "Exportando…" : "Exportar Excel (.xlsm)"}
+        </button>
+        <button type="button" disabled={!clients.length} onClick={() => setOpenClients(clients.every(c => openClients.has(c.key)) ? new Set() : new Set(clients.map(c => c.key)))}>
+          {clients.length > 0 && clients.every(c => openClients.has(c.key)) ? <><Minus size={15}/>Recolher clientes</> : <><Plus size={15}/>Expandir clientes</>}
+        </button>
         {expanded && <button type="button" onClick={collapseDays}><Minus size={15}/>Recolher dias</button>}
         <button type="button" aria-pressed={details} onClick={() => setDetails(!details)}>
           <Columns3 size={15} aria-hidden="true"/>{details ? "Ocultar cadastro" : "Exibir cadastro"}
@@ -144,11 +175,12 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
       </div>
     </div>
 
+    {exportError && <p className="tariff-export-error" role="alert">{exportError}</p>}
     <div className="tariff-scroll" role="region" aria-label="Tabela de tarifação com rolagem horizontal"
       tabIndex={0} ref={tableRef}>
-      <table className="tariff-table" aria-label={metricLabels[metric] + " por projeto e período, " + year}>
+      <table className="tariff-table" aria-label={metricLabels[metric] + " por cliente, projeto e período, " + year}>
         <thead><tr>
-          <th scope="col" className="tariff-identity">Projeto / Cliente</th>
+          <th scope="col" className="tariff-identity">Cliente / Projeto</th>
           {details && projectFields.map(field => <th scope="col" className="tariff-meta" key={field}>{field}</th>)}
           <th scope="col" className="tariff-number tariff-period-total">Total do período</th>
           {columns.map(col => <th key={col.key} scope="col" className={"tariff-" + col.kind + (expanded === col.key ? " is-open" : "")}>
@@ -166,9 +198,39 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
             {details && <td colSpan={projectFields.length}/>}
             <AmountCells periods={totals} columns={columns} metric={metric}/>
           </tr>}
-          {visible.map(line => {
+          {clients.map(client => <ClientRows key={client.key} client={client} open={openClients.has(client.key)}
+            onToggle={() => toggleClient(client.key)} details={details} columns={columns} metric={metric}/>)}
+          {!visible.length && <tr><td colSpan={width} className="tariff-no-results">
+            Nenhum projeto ou origem corresponde à seleção.
+          </td></tr>}
+        </tbody>
+      </table>
+    </div>
+    <footer className="tariff-footer">
+      <span aria-live="polite">{clients.length} clientes · {projectCount} {projectCount === 1 ? "projeto" : "projetos"} · {unlinkedCount} {unlinkedCount === 1 ? "origem sem vínculo" : "origens sem vínculo"}</span>
+      <span><CalendarDays size={14} aria-hidden="true"/>{metric === "unit" ? "Custo total ÷ chamadas. Traço indica ausência de dados ou de chamadas." : "Traço indica ausência de registro. Zero indica consumo registrado com valor zero."}</span>
+    </footer>
+  </section>;
+}
+
+function ClientRows({client, open, onToggle, details, columns, metric}: {
+  client: ReturnType<typeof groupTariffClients>[number]; open: boolean; onToggle: () => void;
+  details: boolean; columns: PeriodColumn[]; metric: TariffMetric;
+}) {
+  return <>
+    <tr className="tariff-client">
+      <th scope="row" className="tariff-identity">
+        <button type="button" className="tariff-client-toggle" aria-expanded={open} onClick={onToggle}>
+          {open ? <Minus size={15}/> : <Plus size={15}/>}
+          <span><strong>{client.name}</strong><small>{client.lines.length} {client.lines.length === 1 ? "item" : "itens"}</small></span>
+        </button>
+      </th>
+      {details && <td colSpan={projectFields.length}/>}
+      <AmountCells periods={client.periods} columns={columns} metric={metric}/>
+    </tr>
+    {open && client.lines.map((line: TariffLine) => {
             const project = line.project;
-            return <tr key={line.key}>
+            return <tr className="tariff-project" key={line.key}>
               <th scope="row" className="tariff-identity">
                 <span className="tariff-code">{project?.code ?? "Sem vínculo"}<span> · {productName(line.agent)}</span></span>
                 <strong>{project?.name ?? line.client}</strong>{project && <small>{line.client}</small>}
@@ -184,15 +246,5 @@ export function FinancialTariffs({report}: {report: TariffReport | null}) {
               <AmountCells periods={line.periods} columns={columns} metric={metric}/>
             </tr>;
           })}
-          {!visible.length && <tr><td colSpan={width} className="tariff-no-results">
-            Nenhum projeto ou origem corresponde à seleção.
-          </td></tr>}
-        </tbody>
-      </table>
-    </div>
-    <footer className="tariff-footer">
-      <span aria-live="polite">{projectCount} {projectCount === 1 ? "projeto" : "projetos"} · {unlinkedCount} {unlinkedCount === 1 ? "origem sem vínculo" : "origens sem vínculo"}</span>
-      <span><CalendarDays size={14} aria-hidden="true"/>{metric === "unit" ? "Custo total ÷ chamadas. Traço indica ausência de dados ou de chamadas." : "Traço indica ausência de registro. Zero indica consumo registrado com valor zero."}</span>
-    </footer>
-  </section>;
+  </>;
 }
