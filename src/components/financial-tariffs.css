@@ -177,7 +177,9 @@ html[data-theme="dark"] .tariff-card {
 .tariff-export-error { color: var(--matrix-accent); padding: .5rem 1.5rem; }
 .tariff-tools button:disabled { opacity: .55; cursor: not-allowed; }
 
-.tariff-card-full { position: fixed !important; inset: .55rem; width: auto !important; max-width: none !important; margin: 0 !important; z-index: 1000; display: flex; flex-direction: column; box-shadow: 0 0 0 100vmax #10172a99; overflow: auto; }
+.tariff-full-dialog { position: fixed; inset: 0; margin: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; border: 0; padding: .55rem; background: transparent; overflow: hidden; box-sizing: border-box; }
+.tariff-full-dialog::backdrop { background: #10172ae6; }
+.tariff-card-full { width: 100%; height: 100%; max-width: none; margin: 0 !important; display: flex; flex-direction: column; overflow: auto; }
 .tariff-card-full .tariff-scroll { flex: 1 1 auto; min-height: 12rem; max-height: none; }
 .tariff-card-full > :not(.tariff-scroll):not(dialog) { flex-shrink: 0; }
 .tariff-row-actions { display:flex; align-items:center; justify-content:space-between; gap:.3rem; }
@@ -206,4 +208,4 @@ html[data-theme="dark"] .tariff-card {
 .tariff-analysis-campaigns button {text-align:left;border:0;background:none;color:var(--matrix-ink);cursor:pointer;padding:0;font-weight:600;}
 .tariff-analysis-campaigns button small {display:block;}
 .tariff-analysis-campaigns .is-selected {background:var(--matrix-summary);}
-@media(max-width:650px){.tariff-analysis-kpis {grid-template-columns:repeat(2,minmax(0,1fr));}.tariff-analysis-controls {grid-template-columns:1fr;}.tariff-card-full {inset:0;}}
+@media(max-width:650px){.tariff-analysis-kpis {grid-template-columns:repeat(2,minmax(0,1fr));}.tariff-analysis-controls {grid-template-columns:1fr;}.tariff-full-dialog {padding:0;}}
