@@ -19,7 +19,8 @@ export type TariffDay = {
   calls: string;
 };
 
-export type TariffReport = { year: number; years: number[]; projects: TariffProject[]; days: TariffDay[] };
+export type TariffCampaignDay = TariffDay & { server: string; campaignId: string; campaignName: string };
+export type TariffReport = { year: number; years: number[]; projects: TariffProject[]; days: TariffDay[]; campaigns: TariffCampaignDay[] };
 export type TariffMetric = "cost" | "calls" | "unit";
 export type TariffAmount = { cost: bigint; calls: bigint };
 export type TariffLine = {
