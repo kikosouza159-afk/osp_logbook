@@ -7,6 +7,7 @@ import {
   RefreshCw, Search, SlidersHorizontal, Sparkles, Target, Users, X
 } from "lucide-react";
 import "./locator-opportunities.css";
+import { LocatorSimulator, isLocator } from "./locator-opportunities-simulator";
 
 type Daily = {
   server: string; date: string; campaignId: string; campaign: string;
@@ -14,7 +15,7 @@ type Daily = {
   agentType: number | null; mailing: number | null; mailingDate: string | null;
   logged: number; attempts: number; answered: number;
 };
-type Campaign = {
+export type Campaign = {
   key: string; client: string; server: string; campaign: string; campaignId: string;
   agentType: number | null; mapped: boolean; daily: Daily[]; days: number;
   mailing: number | null; logged: number; attempts: number; answered: number;
@@ -234,6 +235,9 @@ export function LocatorOpportunities(){
   const [showUnmapped,setShowUnmapped]=useState(false);
   const [selected,setSelected]=useState<Campaign|null>(null);
   const [explain,setExplain]=useState(false);
+  const [tab,setTab]=useState<"map"|"simulator">("map");
+  const [simulationKeys,setSimulationKeys]=useState<string[]>([]);
+  const toggleSimulation=(key:string)=>setSimulationKeys(prev=>prev.includes(key)?prev.filter(k=>k!==key):[...prev,key]);
 
   useEffect(()=>{
     let cancelled=false;const controller=new AbortController();
@@ -263,11 +267,15 @@ export function LocatorOpportunities(){
   return <div className="lo">
     <div className="lo-hero">
       <div><div className="lo-eyebrow"><Sparkles size={15}/> OSP Gestão · Intelligence Studio</div>
-        <h1>Mapa de Oportunidades <span>Locator</span></h1>
+        <h1>{tab==="map"?"Mapa de Oportunidades":"Simulador"} <span>Locator</span></h1>
         <p>Encontre campanhas com espaço para automatizar o esforço, dimensionar transferências e otimizar o HC.</p>
       </div>
       <button className="lo-btn lo-btn-ghost" onClick={()=>setRefresh(n=>n+1)} disabled={loading}><RefreshCw size={16} className={loading?"lo-rotate":""}/> Atualizar</button>
     </div>
+    <nav className="lo-sim-tabs" aria-label="Visões Locator">
+      <button type="button" aria-pressed={tab==="map"} onClick={()=>setTab("map")}><Target size={16}/> Mapa de oportunidades</button>
+      <button type="button" aria-pressed={tab==="simulator"} onClick={()=>setTab("simulator")}><SlidersHorizontal size={16}/> Simulador Locator ({simulationKeys.length})</button>
+    </nav>
     <div className="lo-toolbar lo-panel">
       <label><span>Cliente</span><select value={client} onChange={e=>setClient(e.target.value)}>{clients.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
       <label><span>Período inicial</span><input type="date" value={start||data.range?.start||""} onChange={e=>setStart(e.target.value)}/></label>
@@ -279,7 +287,7 @@ export function LocatorOpportunities(){
       </div>
     </div>
     {error&&<div className="lo-warning"><CircleAlert size={18}/>{error}</div>}
-    {loading?<div className="lo-empty">Consultando campanhas e recalculando o índice…</div>:
+    {loading?<div className="lo-empty">Consultando campanhas e recalculando o índice…</div>:!error&&tab==="map"&&
     <>
       <div className="lo-kpis">
         <div className="lo-kpi"><div><span>Campanhas analisadas</span><Target size={20}/></div><strong>{fmt(ranked.length)}</strong><small>{fmt(new Set(ranked.map(c=>c.client)).size)} clientes no filtro</small></div>
@@ -305,11 +313,11 @@ export function LocatorOpportunities(){
       </div>
       <article className="lo-panel lo-space">
         <div className="lo-section-head"><div><small>RANKING MULTICRITÉRIO · 4 DIMENSÕES</small><h2>Oportunidades por campanha</h2></div>
-          <button className="lo-btn lo-btn-secondary" onClick={()=>downloadCsv(ranked)} disabled={!ranked.length}><Download size={16}/> Exportar CSV</button>
+          <div className="lo-sim-actions"><button className="lo-btn lo-btn-secondary" onClick={()=>setTab("simulator")}>Simular selecionadas ({simulationKeys.length})</button><button className="lo-btn lo-btn-secondary" onClick={()=>downloadCsv(ranked)} disabled={!ranked.length}><Download size={16}/> Exportar CSV</button></div>
         </div>
         <div className="lo-table-scroll"><table className="lo-table">
-          <thead><tr><th>#</th><th>Campanha / Cliente</th><th>Mailing / Log</th><th>Atend / Log</th><th>Mailing médio</th><th>Logados</th><th>Hit%</th><th>Spin</th><th>Score</th><th>Ação</th></tr></thead>
-          <tbody>{ranked.map((c,i)=><tr key={c.key}><td><b className="lo-rank">{i+1}</b></td>
+          <thead><tr><th>Simular</th><th>#</th><th>Campanha / Cliente</th><th>Mailing / Log</th><th>Atend / Log</th><th>Mailing médio</th><th>Logados</th><th>Hit%</th><th>Spin</th><th>Score</th><th>Ação</th></tr></thead>
+          <tbody>{ranked.map((c,i)=><tr key={c.key}><td><input type="checkbox" className="lo-sim-check" aria-label={"Selecionar "+c.campaign+" "+c.client} checked={simulationKeys.includes(c.key)} onChange={()=>toggleSimulation(c.key)} disabled={isLocator(c)}/></td><td><b className="lo-rank">{i+1}</b></td>
             <td><strong>{c.campaign}</strong><small>{c.client} · #{c.campaignId} {c.agentType===4?"· Já Locator":""} {!c.mapped?"· Revisar vínculo":""}</small></td>
             <td className="lo-accent">{fmt(c.mailingLog)}</td><td>{fmt(c.atendLog,1)}</td><td>{fmt(c.mailing)}</td><td>{fmt(c.logged,1)}</td>
             <td>{pct(c.hit)}</td><td>{fmt(c.spin,2)}</td><td><span className="lo-score-pill">{fmt(c.score,1)}</span></td>
@@ -320,6 +328,7 @@ export function LocatorOpportunities(){
       </article>
       <div className="lo-footer"><span>Atualização da base: {data.updatedAt?new Date(data.updatedAt).toLocaleString("pt-BR"):"Ainda sem carga"} · Fonte SQL Server → Neon</span><span>Índice de 0 a 100 · Hit% informativo, fora do score</span></div>
     </>}
+    <div hidden={tab!=="simulator"||loading||!!error}><LocatorSimulator campaigns={ranked} allCampaigns={all} keys={simulationKeys} setKeys={setSimulationKeys}/></div>
     {selected&&<Detail key={selected.key} campaign={selected} onClose={()=>setSelected(null)}/>}
     {explain&&<div className="lo-overlay" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setExplain(false);}}><section className="lo-explain lo-panel" role="dialog" aria-modal="true">
       <div className="lo-section-head"><div><small>METODOLOGIA TRANSPARENTE</small><h2>Índice de Oportunidade Locator</h2></div><button className="lo-icon-button" onClick={()=>setExplain(false)}><X size={20}/></button></div>
